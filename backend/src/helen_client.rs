@@ -85,6 +85,7 @@ pub struct HelenClient {
     client:            Client,
     selected_contract: Option<serde_json::Value>,
     latest_login_time: Option<DateTime<Utc>>,
+    selected_gsrn:     Option<String>,
 }
 
 impl HelenClient {
@@ -95,7 +96,18 @@ impl HelenClient {
             client,
             selected_contract: None,
             latest_login_time: None,
+            selected_gsrn: None,
         })
+    }
+
+    pub fn set_selected_gsrn(&mut self, gsrn: Option<String>) {
+        self.selected_gsrn = gsrn;
+    }
+
+    pub async fn select_gsrn(&mut self, gsrn: Option<String>) -> Result<()> {
+        self.selected_gsrn = gsrn;
+        self.refresh_state().await?;
+        Ok(())
     }
 
     /// Build a fresh reqwest Client with its own cookie jar.
@@ -378,8 +390,15 @@ impl HelenClient {
     async fn refresh_state(&mut self) -> Result<()> {
         let contracts = self.fetch_contracts().await?;
         let active    = Self::filter_active_contracts(&contracts);
-        let selected  = Self::latest_contract(active)
-            .context("No active contracts found")?;
+        let selected = if let Some(ref target_gsrn) = self.selected_gsrn {
+            active.iter()
+                .find(|c| c["gsrn"].as_str() == Some(target_gsrn))
+                .cloned()
+                .or_else(|| Self::latest_contract(active.clone()))
+        } else {
+            Self::latest_contract(active.clone())
+        };
+        let selected = selected.context("No active contracts found")?;
         tracing::info!(
             "Selected contract GSRN: {}",
             selected["gsrn"].as_str().unwrap_or("?")
@@ -476,31 +495,19 @@ impl HelenClient {
         stop:       NaiveDate,
         resolution: Resolution,
     ) -> Result<ConsumptionData> {
-        let token            = self.get_token().context("No access token")?;
-        let delivery_site_id = self.delivery_site_id()?;
-        let (start_utc, stop_utc) = Self::fi_date_range_to_utc(start, stop, false);
+        let gsrn  = self.gsrn()?;
+        let token = self.get_token().context("No access token")?;
+        let (start_utc, stop_utc) = Self::fi_date_range_to_utc(start, stop, true);
 
-        let is_transfer = self.selected_contract.as_ref()
-            .and_then(|c| c["domain"].as_str())
-            .map(|d| d == "electricity-transfer")
-            .unwrap_or(false);
-
-        let endpoint = if is_transfer {
-            "/measurements/electricity-transfer"
-        } else {
-            "/measurements/electricity"
-        };
-
-        let url = format!("{}{}", HELEN_API_BASE, endpoint);
+        let url = format!("{}/chart-data/{}/electricity", HELEN_API_BASE, gsrn);
         tracing::info!("Fetching consumption from {}", url);
 
         let res = self.client.get(&url)
             .query(&[
-                ("begin",            start_utc.to_rfc3339()),
-                ("end",              stop_utc.to_rfc3339()),
-                ("resolution",       resolution.as_str().to_string()),
-                ("delivery_site_id", delivery_site_id.to_string()),
-                ("allow_transfer",   "true".to_string()),
+                ("start",      start_utc.to_rfc3339()),
+                ("stop",       stop_utc.to_rfc3339()),
+                ("resolution", resolution.as_str().to_string()),
+                ("channel",    "oh".to_string()),
             ])
             .header("Authorization", format!("Bearer {}", token))
             .header("Accept", "application/json")
@@ -567,7 +574,7 @@ impl HelenClient {
             "/measurements/electricity"
         };
 
-        let url = format!("{}{}", HELEN_API_BASE, endpoint);
+        let url = format!("{}{}", HELEN_OMA_API_V26, endpoint);
         tracing::info!("Fetching measurements from {}", url);
 
         let res = self.client.get(&url)

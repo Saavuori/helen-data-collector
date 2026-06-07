@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Field,
@@ -20,6 +21,7 @@ import {
   ArrowSync24Regular,
   Save24Regular,
   Clock24Regular,
+  BoxMultiple24Regular,
 } from '@fluentui/react-icons';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -196,6 +198,36 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const [loadingTest, setLoadingTest] = useState(false);
   const [loadingSync, setLoadingSync] = useState(false);
   const [loadingSave, setLoadingSave] = useState(false);
+  const queryClient = useQueryClient();
+
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [selectedGsrn, setSelectedGsrn] = useState<string | null>(null);
+  const [loadingContracts, setLoadingContracts] = useState(false);
+
+  const fetchContracts = async () => {
+    setLoadingContracts(true);
+    try {
+      const res = await axios.get('/contracts');
+      setContracts(res.data.contracts || []);
+      setSelectedGsrn(res.data.selected_gsrn || null);
+    } catch (e) {
+      console.error("Failed to fetch contracts", e);
+    } finally {
+      setLoadingContracts(false);
+    }
+  };
+
+  const handleSelectContract = async (gsrn: string) => {
+    try {
+      await axios.post('/contracts/select', { gsrn });
+      setSelectedGsrn(gsrn);
+      queryClient.invalidateQueries({ queryKey: ['consumption'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      await fetchContracts();
+    } catch (e) {
+      console.error("Failed to select contract", e);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -209,6 +241,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
       } catch {}
     };
     load();
+    fetchContracts();
     const id = setInterval(async () => {
       try {
         const r = await axios.get('/influx/status');
@@ -280,6 +313,65 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
 
         {/* Body */}
         <div className={styles.panelBody}>
+
+          {/* Contracts Section */}
+          <div>
+            <div className={styles.sectionLabel}>
+              <BoxMultiple24Regular style={{ fontSize: '15px' }} />
+              Active Contracts
+            </div>
+            {loadingContracts ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px' }}>
+                <Spinner size="tiny" />
+                <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>Loading contracts…</Text>
+              </div>
+            ) : contracts.length === 0 ? (
+              <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>No active contracts found.</Text>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {contracts.map(contract => {
+                  const isSelected = selectedGsrn === contract.gsrn;
+                  const streetAddress = contract.delivery_site?.address?.street_address || 'Unknown Address';
+                  const city = contract.delivery_site?.address?.city || '';
+                  return (
+                    <div
+                      key={contract.gsrn}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: tokens.borderRadiusMedium,
+                        border: `1px solid ${isSelected ? tokens.colorBrandStroke1 : tokens.colorNeutralStroke2}`,
+                        background: isSelected ? 'rgba(99, 102, 241, 0.08)' : tokens.colorNeutralBackground3,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <Text size={250} weight="semibold" style={{ display: 'block' }}>
+                          {streetAddress}{city ? `, ${city}` : ''}
+                        </Text>
+                        <Text size={200} style={{ color: tokens.colorNeutralForeground3, display: 'block' }}>
+                          GSRN: {contract.gsrn}
+                        </Text>
+                        <Text size={100} style={{ color: tokens.colorNeutralForeground4 }}>
+                          {contract.domain} • Started: {contract.start_date?.split('T')[0]}
+                        </Text>
+                      </div>
+                      <Button
+                        appearance={isSelected ? 'primary' : 'secondary'}
+                        disabled={isSelected}
+                        onClick={() => handleSelectContract(contract.gsrn)}
+                        size="small"
+                      >
+                        {isSelected ? 'Selected' : 'Select'}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Enable toggle */}
           <div className={styles.toggleRow}>

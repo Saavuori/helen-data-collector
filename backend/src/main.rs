@@ -75,16 +75,21 @@ struct InfluxSyncResponse {
 // Credentials persistence
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct SavedCredentials {
     username: String,
     password: String,
+    selected_gsrn: Option<String>,
 }
 
 fn credentials_path() -> PathBuf { PathBuf::from("credentials.json") }
 
-fn save_credentials(username: &str, password: &str) {
-    let creds = SavedCredentials { username: username.to_string(), password: password.to_string() };
+fn save_credentials(username: &str, password: &str, selected_gsrn: Option<String>) {
+    let creds = SavedCredentials {
+        username: username.to_string(),
+        password: password.to_string(),
+        selected_gsrn,
+    };
     match serde_json::to_string_pretty(&creds) {
         Ok(json) => {
             if let Err(e) = std::fs::write(credentials_path(), json) {
@@ -121,6 +126,7 @@ async fn main() {
     // Auto-login from saved credentials
     if let Some(creds) = load_credentials() {
         tracing::info!("Found saved credentials for '{}', attempting auto-login…", creds.username);
+        client.set_selected_gsrn(creds.selected_gsrn.clone());
         match client.login(&creds.username, &creds.password).await {
             Ok(()) => { tracing::info!("Auto-login successful"); logged_in = true; }
             Err(e) => tracing::warn!("Auto-login failed ({}), will require manual login", e),
@@ -146,6 +152,7 @@ async fn main() {
                 tracing::info!("Token refresh: re-logging in…");
                 if let Some(creds) = load_credentials() {
                     let mut st = s.lock().await;
+                    st.client.set_selected_gsrn(creds.selected_gsrn.clone());
                     match st.client.login(&creds.username, &creds.password).await {
                         Ok(()) => { st.logged_in = true; tracing::info!("Token refresh: success"); }
                         Err(e) => tracing::warn!("Token refresh failed: {}", e),
@@ -195,15 +202,16 @@ async fn main() {
     }
 
     let app = Router::new()
-        .route("/login",        post(login_handler))
-        .route("/status",       get(status_handler))
-        .route("/consumption",  get(get_consumption_handler))
-        .route("/products",     get(get_products_handler))
-        .route("/contracts",    get(get_contracts_handler))
-        .route("/influx/config", get(get_influx_config_handler).post(post_influx_config_handler))
-        .route("/influx/status", get(get_influx_status_handler))
-        .route("/influx/test",   post(influx_test_handler))
-        .route("/influx/sync",   post(influx_sync_handler))
+        .route("/login",            post(login_handler))
+        .route("/status",           get(status_handler))
+        .route("/consumption",      get(get_consumption_handler))
+        .route("/products",         get(get_products_handler))
+        .route("/contracts",        get(get_contracts_handler))
+        .route("/contracts/select", post(select_contract_handler))
+        .route("/influx/config",    get(get_influx_config_handler).post(post_influx_config_handler))
+        .route("/influx/status",    get(get_influx_status_handler))
+        .route("/influx/test",      post(influx_test_handler))
+        .route("/influx/sync",      post(influx_sync_handler))
         .fallback_service(tower_http::services::ServeDir::new("dist"))
         .layer(CorsLayer::permissive())
         .with_state(shared_state);
@@ -265,6 +273,7 @@ async fn relogin_if_needed(state: &mut AppState) -> bool {
     match load_credentials() {
         Some(creds) => {
             tracing::info!("Access token expired — on-demand re-login…");
+            state.client.set_selected_gsrn(creds.selected_gsrn.clone());
             match state.client.login(&creds.username, &creds.password).await {
                 Ok(()) => { state.logged_in = true; tracing::info!("Re-login ok"); true }
                 Err(e) => { tracing::warn!("Re-login failed: {}", e); false }
@@ -291,9 +300,16 @@ async fn login_handler(
 ) -> Result<StatusCode, (StatusCode, String)> {
     tracing::info!("Login attempt for {}", payload.username);
     let mut state = state.lock().await;
+    let existing = load_credentials();
+    let selected_gsrn = existing.and_then(|e| {
+        if e.username == payload.username { e.selected_gsrn } else { None }
+    });
+    
+    state.client.set_selected_gsrn(selected_gsrn.clone());
     state.client.login(&payload.username, &payload.password).await
         .map_err(|e| (StatusCode::UNAUTHORIZED, e.to_string()))?;
-    save_credentials(&payload.username, &payload.password);
+        
+    save_credentials(&payload.username, &payload.password, selected_gsrn);
     state.logged_in = true;
     tracing::info!("Login successful");
     Ok(StatusCode::OK)
@@ -323,16 +339,49 @@ async fn get_contracts_handler(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let mut state = state.lock().await;
     if !state.logged_in { return Err((StatusCode::UNAUTHORIZED, "Not logged in".into())); }
+    
+    let selected_gsrn = state.client.gsrn().ok();
+    
     match state.client.fetch_contracts().await {
-        Ok(d) => Ok(Json(serde_json::json!({ "contracts": d }))),
+        Ok(d) => Ok(Json(serde_json::json!({
+            "contracts": d,
+            "selected_gsrn": selected_gsrn
+        }))),
         Err(e) if e.to_string().contains("No access token") => {
             relogin_if_needed(&mut state).await;
+            let selected_gsrn = state.client.gsrn().ok();
             state.client.fetch_contracts().await
-                .map(|d| Json(serde_json::json!({ "contracts": d })))
+                .map(|d| Json(serde_json::json!({
+                    "contracts": d,
+                    "selected_gsrn": selected_gsrn
+                })))
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
         }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
+}
+
+#[derive(Deserialize)]
+struct SelectContractRequest {
+    gsrn: String,
+}
+
+async fn select_contract_handler(
+    State(state): State<Arc<Mutex<AppState>>>,
+    Json(payload): Json<SelectContractRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let mut state = state.lock().await;
+    if !state.logged_in { return Err((StatusCode::UNAUTHORIZED, "Not logged in".into())); }
+    
+    state.client.select_gsrn(Some(payload.gsrn.clone())).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        
+    if let Some(mut creds) = load_credentials() {
+        creds.selected_gsrn = Some(payload.gsrn);
+        save_credentials(&creds.username, &creds.password, creds.selected_gsrn);
+    }
+    
+    Ok(StatusCode::OK)
 }
 
 async fn get_consumption_handler(
