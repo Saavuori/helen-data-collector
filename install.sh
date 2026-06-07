@@ -2,7 +2,7 @@
 set -e
 
 REPO="Saavuori/helen-data-collector"
-BRANCH="master"
+BRANCH="main"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 INSTALL_DIR="${1:-helen-collector}"
 
