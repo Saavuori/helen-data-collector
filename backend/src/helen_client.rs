@@ -47,6 +47,7 @@ impl Resolution {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsumptionData {
+    pub gsrn:   Option<String>,
     pub series: Vec<ConsumptionSeries>,
 }
 
@@ -60,6 +61,19 @@ pub struct ConsumptionSeries {
     pub electricity_spot_prices:      Option<f64>,
     /// Spot price including VAT (c/kWh)
     pub electricity_spot_prices_vat:  Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeasurementsResponse {
+    pub ids:    Option<MeasurementsIds>,
+    pub series: Vec<ConsumptionSeries>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeasurementsIds {
+    pub electricity:                  Option<String>,
+    pub electricity_spot_prices:      Option<String>,
+    pub electricity_spot_prices_vat:  Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +388,7 @@ impl HelenClient {
         Ok(())
     }
 
-    async fn fetch_contracts(&self) -> Result<Vec<serde_json::Value>> {
+    pub async fn fetch_contracts(&self) -> Result<Vec<serde_json::Value>> {
         let token = self.get_token().context("No access token")?;
         let url   = format!("{}/contract/list", HELEN_API_BASE);
 
@@ -462,19 +476,31 @@ impl HelenClient {
         stop:       NaiveDate,
         resolution: Resolution,
     ) -> Result<ConsumptionData> {
-        let gsrn  = self.gsrn()?;
-        let token = self.get_token().context("No access token")?;
-        let (start_utc, stop_utc) = Self::fi_date_range_to_utc(start, stop, true);
+        let token            = self.get_token().context("No access token")?;
+        let delivery_site_id = self.delivery_site_id()?;
+        let (start_utc, stop_utc) = Self::fi_date_range_to_utc(start, stop, false);
 
-        let url = format!("{}/chart-data/{}/electricity", HELEN_API_BASE, gsrn);
+        let is_transfer = self.selected_contract.as_ref()
+            .and_then(|c| c["domain"].as_str())
+            .map(|d| d == "electricity-transfer")
+            .unwrap_or(false);
+
+        let endpoint = if is_transfer {
+            "/measurements/electricity-transfer"
+        } else {
+            "/measurements/electricity"
+        };
+
+        let url = format!("{}{}", HELEN_API_BASE, endpoint);
         tracing::info!("Fetching consumption from {}", url);
 
         let res = self.client.get(&url)
             .query(&[
-                ("start",      start_utc.to_rfc3339()),
-                ("stop",       stop_utc.to_rfc3339()),
-                ("resolution", resolution.as_str().to_string()),
-                ("channel",    "oh".to_string()),
+                ("begin",            start_utc.to_rfc3339()),
+                ("end",              stop_utc.to_rfc3339()),
+                ("resolution",       resolution.as_str().to_string()),
+                ("delivery_site_id", delivery_site_id.to_string()),
+                ("allow_transfer",   "true".to_string()),
             ])
             .header("Authorization", format!("Bearer {}", token))
             .header("Accept", "application/json")
@@ -486,8 +512,17 @@ impl HelenClient {
             return Err(anyhow!("Consumption fetch failed ({}): {}", status, body));
         }
 
-        serde_json::from_str(&body)
-            .with_context(|| format!("Failed to decode consumption JSON: {}", body))
+        let raw: MeasurementsResponse = serde_json::from_str(&body)
+            .with_context(|| format!("Failed to decode consumption JSON: {}", body))?;
+
+        let parsed_gsrn = raw.ids.as_ref()
+            .and_then(|ids| ids.electricity.clone())
+            .or_else(|| self.gsrn().ok());
+
+        Ok(ConsumptionData {
+            gsrn: parsed_gsrn,
+            series: raw.series,
+        })
     }
 
     pub async fn get_products(&self) -> Result<serde_json::Value> {

@@ -199,6 +199,7 @@ async fn main() {
         .route("/status",       get(status_handler))
         .route("/consumption",  get(get_consumption_handler))
         .route("/products",     get(get_products_handler))
+        .route("/contracts",    get(get_contracts_handler))
         .route("/influx/config", get(get_influx_config_handler).post(post_influx_config_handler))
         .route("/influx/status", get(get_influx_status_handler))
         .route("/influx/test",   post(influx_test_handler))
@@ -244,7 +245,8 @@ async fn run_influx_sync(
             let st = state.lock().await;
             st.client.get_consumption(date, date, Resolution::Quarter).await?
         };
-        let lines = influx::to_line_protocol(&gsrn, &series.series);
+        let actual_gsrn = series.gsrn.as_ref().unwrap_or(&gsrn);
+        let lines = influx::to_line_protocol(actual_gsrn, &series.series);
         if !lines.is_empty() {
             if !total_lines.is_empty() { total_lines.push('\n'); }
             total_lines.push_str(&lines);
@@ -314,6 +316,23 @@ async fn get_products_handler(
     state.client.get_products().await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn get_contracts_handler(
+    State(state): State<Arc<Mutex<AppState>>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mut state = state.lock().await;
+    if !state.logged_in { return Err((StatusCode::UNAUTHORIZED, "Not logged in".into())); }
+    match state.client.fetch_contracts().await {
+        Ok(d) => Ok(Json(serde_json::json!({ "contracts": d }))),
+        Err(e) if e.to_string().contains("No access token") => {
+            relogin_if_needed(&mut state).await;
+            state.client.fetch_contracts().await
+                .map(|d| Json(serde_json::json!({ "contracts": d })))
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
 }
 
 async fn get_consumption_handler(
