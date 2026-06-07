@@ -6,7 +6,9 @@ import Settings from './components/Settings';
 import axios from 'axios';
 
 // Configure Axios base URL based on dev vs production build
-axios.defaults.baseURL = import.meta.env.DEV ? 'http://localhost:3000' : '';
+axios.defaults.baseURL = import.meta.env.DEV 
+  ? (import.meta.env.VITE_API_URL || 'http://localhost:3000') 
+  : '';
 
 import {
   Spinner,
