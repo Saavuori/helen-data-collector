@@ -1,0 +1,72 @@
+# =========================================================
+# Helen Data Collector — .gitignore
+# Rust backend + React/Vite/TypeScript frontend
+# =========================================================
+
+# ---------------------------------------------------------
+# SECURITY — Never commit credentials or secrets
+# ---------------------------------------------------------
+credentials.json
+*.env
+.env
+.env.*
+!.env.example
+secrets.json
+config.local.*
+
+# ---------------------------------------------------------
+# Rust / Cargo
+# ---------------------------------------------------------
+backend/target/
+backend/target_new/
+**/*.rs.bk
+Cargo.lock          # Remove this line if you want to track lock file (binaries should keep it)
+
+# ---------------------------------------------------------
+# Frontend — Node / npm / Vite
+# ---------------------------------------------------------
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+
+# ---------------------------------------------------------
+# Python scripts / debugging artifacts
+# ---------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.pyc
+debug_log.txt
+debug_log_clean.txt
+
+# ---------------------------------------------------------
+# OS generated files
+# ---------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ---------------------------------------------------------
+# IDEs & Editors
+# ---------------------------------------------------------
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# ---------------------------------------------------------
+# Logs & temporary files
+# ---------------------------------------------------------
+*.log
+*.tmp
+*.bak
+*.orig
