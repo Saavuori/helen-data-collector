@@ -7,7 +7,7 @@ description: how to run and test Helen Flow Collector locally
 ## Project Overview
 
 Helen Flow Collector is a self-hosted tool that retrieves electricity consumption and spot price data from Helen.fi.
-* **Production Environment**: Runs in a Docker container on a Raspberry Pi (`192.168.0.110:8888`). It automatically updates via Watchtower when new images are built and pushed to GitHub Container Registry (GHCR) from the `main` branch.
+* **Production Environment**: Runs in a Docker container on a Raspberry Pi or other target server. It automatically updates via Watchtower when new images are built and pushed to GitHub Container Registry (GHCR) from the `main` branch.
 * **InfluxDB Export**: Active in production, writing to a remote InfluxDB instance (e.g. bucket `RUUVI`).
 
 ---
