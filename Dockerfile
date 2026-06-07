@@ -30,7 +30,7 @@ RUN mkdir -p /out
 
 # Build for target platform, copy binary out, verify architecture
 RUN xx-cargo build --release --target-dir /target && \
-    cp /target/$(xx-cargo --print-target)/release/backend /out/helen-collector && \
+    cp /target/$(xx-cargo --print-target-triple)/release/backend /out/helen-collector && \
     xx-verify /out/helen-collector
 
 # Stage 3: Final minimal image
