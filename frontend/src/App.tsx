@@ -22,11 +22,16 @@ import {
   Text,
   tokens,
   makeStyles,
+  FluentProvider,
+  webDarkTheme,
+  webLightTheme,
 } from '@fluentui/react-components';
 import {
   DataBarVertical24Regular,
   Settings24Regular,
   SignOut24Regular,
+  WeatherSunny24Regular,
+  WeatherMoon24Regular,
 } from '@fluentui/react-icons';
 
 const useStyles = makeStyles({
@@ -92,6 +97,9 @@ const App: React.FC = () => {
   const styles = useStyles();
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+  });
 
   useEffect(() => {
     axios.get('/status')
@@ -99,73 +107,95 @@ const App: React.FC = () => {
       .catch(() => setIsLoggedIn(false));
   }, []);
 
-  if (isLoggedIn === null) {
-    return (
-      <div className={styles.splashCenter}>
-        <Spinner size="extra-large" label="Connecting to Helen…" />
-      </div>
-    );
-  }
+  const toggleTheme = () => {
+    setTheme(t => {
+      const next = t === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', next);
+      return next;
+    });
+  };
+
+  const currentTheme = theme === 'dark' ? webDarkTheme : webLightTheme;
+  const bgStyle = {
+    minHeight: '100vh',
+    background: theme === 'dark' ? '#0a0a0f' : '#f5f5f7',
+    color: theme === 'dark' ? '#ffffff' : '#000000',
+    transition: 'background-color 0.25s ease, color 0.25s ease',
+  };
 
   return (
-    <div className={styles.root}>
-      {/* ── Nav ── */}
-      <nav className={styles.nav}>
-        <div className={styles.brand}>
-          <div className={styles.brandIcon}>
-            <DataBarVertical24Regular />
-          </div>
-          <Text size={600} weight="semibold" style={{ letterSpacing: '-0.5px' }}>
-            HelenFlow
-          </Text>
+    <FluentProvider theme={currentTheme} style={bgStyle}>
+      {isLoggedIn === null ? (
+        <div className={styles.splashCenter}>
+          <Spinner size="extra-large" label="Connecting to Helen…" />
         </div>
+      ) : (
+        <div className={styles.root}>
+          {/* ── Nav ── */}
+          <nav className={styles.nav}>
+            <div className={styles.brand}>
+              <div className={styles.brandIcon}>
+                <DataBarVertical24Regular />
+              </div>
+              <Text size={600} weight="semibold" style={{ letterSpacing: '-0.5px' }}>
+                HelenFlow
+              </Text>
+            </div>
 
-        {isLoggedIn && (
-          <div className={styles.navActions}>
-            <Button
-              appearance="subtle"
-              icon={<Settings24Regular />}
-              onClick={() => setShowSettings(true)}
-              title="Settings"
-            />
-            <Menu>
-              <MenuTrigger disableButtonEnhancement>
-                <Avatar name="User" size={32} style={{ cursor: 'pointer' }} color="brand" />
-              </MenuTrigger>
-              <MenuPopover>
-                <MenuList>
-                  <MenuItem icon={<SignOut24Regular />} onClick={() => setIsLoggedIn(false)}>
-                    Sign out
-                  </MenuItem>
-                </MenuList>
-              </MenuPopover>
-            </Menu>
-          </div>
-        )}
-      </nav>
+            {isLoggedIn && (
+              <div className={styles.navActions}>
+                <Button
+                  appearance="subtle"
+                  icon={theme === 'dark' ? <WeatherSunny24Regular /> : <WeatherMoon24Regular />}
+                  onClick={toggleTheme}
+                  title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+                />
+                <Button
+                  appearance="subtle"
+                  icon={<Settings24Regular />}
+                  onClick={() => setShowSettings(true)}
+                  title="Settings"
+                />
+                <Menu>
+                  <MenuTrigger disableButtonEnhancement>
+                    <Avatar name="User" size={32} style={{ cursor: 'pointer' }} color="brand" />
+                  </MenuTrigger>
+                  <MenuPopover>
+                    <MenuList>
+                      <MenuItem icon={<SignOut24Regular />} onClick={() => setIsLoggedIn(false)}>
+                        Sign out
+                      </MenuItem>
+                    </MenuList>
+                  </MenuPopover>
+                </Menu>
+              </div>
+            )}
+          </nav>
 
-      {/* ── Main content ── */}
-      <main className={styles.main}>
-        {!isLoggedIn ? (
-          <LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />
-        ) : (
-          <>
-            <ConsumptionChart />
-            <PlanInfo />
-          </>
-        )}
-      </main>
+          {/* ── Main content ── */}
+          <main className={styles.main}>
+            {!isLoggedIn ? (
+              <LoginForm onLoginSuccess={() => setIsLoggedIn(true)} />
+            ) : (
+              <>
+                <ConsumptionChart />
+                <PlanInfo />
+              </>
+            )}
+          </main>
 
-      {/* ── Settings panel ── */}
-      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+          {/* ── Settings panel ── */}
+          {showSettings && <Settings onClose={() => setShowSettings(false)} />}
 
-      {/* ── Footer ── */}
-      <footer className={styles.footer}>
-        <Text size={200} style={{ color: tokens.colorNeutralForeground4 }}>
-          © 2026 HelenFlow Data Collector — Built with Rust & React
-        </Text>
-      </footer>
-    </div>
+          {/* ── Footer ── */}
+          <footer className={styles.footer}>
+            <Text size={200} style={{ color: tokens.colorNeutralForeground4 }}>
+              © 2026 HelenFlow Data Collector — Built with Rust & React
+            </Text>
+          </footer>
+        </div>
+      )}
+    </FluentProvider>
   );
 };
 
