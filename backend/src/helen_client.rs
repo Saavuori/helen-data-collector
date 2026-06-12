@@ -436,7 +436,7 @@ impl HelenClient {
 
     pub fn filter_active_contracts(contracts: &[serde_json::Value]) -> Vec<serde_json::Value> {
         let now = Utc::now().naive_utc();
-        contracts.iter().filter(|c| {
+        let mut active: Vec<serde_json::Value> = contracts.iter().filter(|c| {
             let started = c["start_date"].as_str()
                 .and_then(|s| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok())
                 .map(|d| d <= now)
@@ -450,7 +450,35 @@ impl HelenClient {
             if ended { return false; }
 
             c["domain"].as_str() != Some("electricity-production")
-        }).cloned().collect()
+        }).cloned().collect();
+
+        // Sort: prioritize "electricity" over other domains (like "electricity-transfer"),
+        // then sort by start_date descending (latest first).
+        active.sort_by(|a, b| {
+            let a_is_elec = a["domain"].as_str() == Some("electricity");
+            let b_is_elec = b["domain"].as_str() == Some("electricity");
+            match (a_is_elec, b_is_elec) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => {
+                    let a_start = a["start_date"].as_str().unwrap_or("");
+                    let b_start = b["start_date"].as_str().unwrap_or("");
+                    b_start.cmp(a_start)
+                }
+            }
+        });
+
+        // Deduplicate by GSRN
+        let mut seen = std::collections::HashSet::new();
+        active.retain(|c| {
+            if let Some(gsrn) = c["gsrn"].as_str() {
+                seen.insert(gsrn.to_string())
+            } else {
+                true
+            }
+        });
+
+        active
     }
 
     fn latest_contract(mut contracts: Vec<serde_json::Value>) -> Option<serde_json::Value> {
