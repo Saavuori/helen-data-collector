@@ -434,7 +434,7 @@ impl HelenClient {
             .to_owned())
     }
 
-    fn filter_active_contracts(contracts: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    pub fn filter_active_contracts(contracts: &[serde_json::Value]) -> Vec<serde_json::Value> {
         let now = Utc::now().naive_utc();
         contracts.iter().filter(|c| {
             let started = c["start_date"].as_str()

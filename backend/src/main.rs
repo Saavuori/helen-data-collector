@@ -343,19 +343,26 @@ async fn get_contracts_handler(
     let selected_gsrn = state.client.gsrn().ok();
     
     match state.client.fetch_contracts().await {
-        Ok(d) => Ok(Json(serde_json::json!({
-            "contracts": d,
-            "selected_gsrn": selected_gsrn
-        }))),
+        Ok(d) => {
+            let active = HelenClient::filter_active_contracts(&d);
+            Ok(Json(serde_json::json!({
+                "contracts": active,
+                "selected_gsrn": selected_gsrn
+            })))
+        }
         Err(e) if e.to_string().contains("No access token") => {
             relogin_if_needed(&mut state).await;
             let selected_gsrn = state.client.gsrn().ok();
-            state.client.fetch_contracts().await
-                .map(|d| Json(serde_json::json!({
-                    "contracts": d,
-                    "selected_gsrn": selected_gsrn
-                })))
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+            match state.client.fetch_contracts().await {
+                Ok(d) => {
+                    let active = HelenClient::filter_active_contracts(&d);
+                    Ok(Json(serde_json::json!({
+                        "contracts": active,
+                        "selected_gsrn": selected_gsrn
+                    })))
+                }
+                Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+            }
         }
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
