@@ -41,7 +41,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT sum(\"electricity\") FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "query": "SELECT sum(\"electricity\") FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -123,7 +123,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / 100.0 FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / 100.0 FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -205,7 +205,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / sum(\"electricity\") FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / sum(\"electricity\") FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -287,7 +287,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT max(\"electricity\") * 4.0 FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "query": "SELECT max(\"electricity\") * 4.0 FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -369,7 +369,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT sum(\"electricity\") AS \"Consumption (kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "query": "SELECT sum(\"electricity\") AS \"Consumption (kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter GROUP BY time($__interval) fill(null)",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -389,7 +389,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT mean(\"spot_price_vat\") AS \"Spot Price (VAT incl.) (c/kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "query": "SELECT mean(\"spot_price_vat\") AS \"Spot Price (VAT incl.) (c/kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter GROUP BY time($__interval) fill(null)",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -409,7 +409,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT mean(\"spot_price\") AS \"Spot Price (excl. VAT) (c/kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "query": "SELECT mean(\"spot_price\") AS \"Spot Price (excl. VAT) (c/kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter GROUP BY time($__interval) fill(null)",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -628,7 +628,7 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / 100.0 AS \"Cost (EUR)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / 100.0 AS \"Cost (EUR)\" FROM \"helen_electricity\" WHERE \"gsrn\" =~ /^${gsrn}$/ AND $timeFilter GROUP BY time($__interval) fill(null)",
                       "queryType": "influxql",
                       "rawQuery": true
                     },
@@ -921,7 +921,7 @@
         "datasource": {
           "name": "${datasource}"
         },
-        "definition": "SHOW TAG VALUES FROM \"helen_electricity\" WITH KEY = \"gsrn\"",
+        "definition": "SHOW TAG VALUES ON \"${bucket}\" FROM \"helen_electricity\" WITH KEY = \"gsrn\"",
         "hide": "dontHide",
         "includeAll": false,
         "label": "Meter ID (GSRN)",
@@ -935,7 +935,7 @@
           "group": "influxdb",
           "kind": "DataQuery",
           "spec": {
-            "query": "SHOW TAG VALUES FROM \"helen_electricity\" WITH KEY = \"gsrn\"",
+            "query": "SHOW TAG VALUES ON \"${bucket}\" FROM \"helen_electricity\" WITH KEY = \"gsrn\"",
             "queryType": "influxql",
             "rawQuery": true
           },
