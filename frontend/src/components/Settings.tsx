@@ -348,7 +348,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
                       }}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <Text size={250} weight="semibold" style={{ display: 'block' }}>
+                        <Text size={300} weight="semibold" style={{ display: 'block' }}>
                           {streetAddress}{city ? `, ${city}` : ''}
                         </Text>
                         <Text size={200} style={{ color: tokens.colorNeutralForeground3, display: 'block' }}>
