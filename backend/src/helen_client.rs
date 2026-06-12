@@ -543,6 +543,7 @@ impl HelenClient {
 
         let status = res.status();
         let body   = res.text().await?;
+        tracing::info!("Helen API raw response body: {}", body);
         if !status.is_success() {
             return Err(anyhow!("Consumption fetch failed ({}): {}", status, body));
         }

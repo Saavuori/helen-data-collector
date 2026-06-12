@@ -73,7 +73,6 @@ const useStyles = makeStyles({
     cursor: 'pointer',
     outline: 'none',
     fontFamily: tokens.fontFamilyBase,
-    colorScheme: 'dark',
     padding: '2px',
   },
   statCard: {
@@ -106,9 +105,16 @@ const useStyles = makeStyles({
   },
   toggleRow: {
     display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     gap: tokens.spacingHorizontalS,
     flexWrap: 'wrap',
     marginBottom: tokens.spacingVerticalM,
+  },
+  toggleLeft: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalS,
+    flexWrap: 'wrap',
   },
   togglePill: {
     display: 'flex',
@@ -225,33 +231,107 @@ const CustomTooltip = ({ active, payload, label, showSpot, showCost }: any) => {
 
 const ConsumptionChart: React.FC = () => {
   const styles = useStyles();
-  const [selectedDate, setSelectedDate] = useState<string>(
+  
+  const [startDate, setStartDate] = useState<string>(
     format(subDays(new Date(), 1), 'yyyy-MM-dd')
   );
+  const [stopDate, setStopDate] = useState<string>(
+    format(subDays(new Date(), 1), 'yyyy-MM-dd')
+  );
+
   const [showConsumption, setShowConsumption] = useState(true);
   const [showSpotPrice,   setShowSpotPrice]   = useState(true);
   const [showCost,        setShowCost]        = useState(true);
+  const [resolutionOverride, setResolutionOverride] = useState<string | null>(null);
+
+  const daysDiff = (() => {
+    try {
+      const start = parseISO(startDate);
+      const stop = parseISO(stopDate);
+      return Math.round((stop.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
+    } catch {
+      return 1;
+    }
+  })();
+
+  const resolution = resolutionOverride || (
+    daysDiff <= 2 ? 'quarter' :
+    daysDiff <= 14 ? 'hour' : 'day'
+  );
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['consumption', selectedDate],
+    queryKey: ['consumption', startDate, stopDate, resolution],
     queryFn: async () => {
       const response = await axios.get('/consumption', {
-        params: { start: selectedDate, stop: selectedDate, resolution: 'quarter' },
+        params: { start: startDate, stop: stopDate, resolution },
       });
       return response.data;
     },
   });
 
-  const goToPrevDay = () =>
-    setSelectedDate(format(subDays(parseISO(selectedDate), 1), 'yyyy-MM-dd'));
-  const goToNextDay = () => {
-    const next = subDays(parseISO(selectedDate), -1);
-    if (next < new Date()) setSelectedDate(format(next, 'yyyy-MM-dd'));
+  const handleStartDateChange = (val: string) => {
+    setStartDate(val);
+    const start = parseISO(val);
+    const stop = parseISO(stopDate);
+    const diff = Math.round((stop.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
+    if (diff > 7 && resolutionOverride === 'quarter') {
+      setResolutionOverride(null);
+    }
   };
 
-  const isToday     = selectedDate === format(new Date(), 'yyyy-MM-dd');
-  const isYesterday = selectedDate === format(subDays(new Date(), 1), 'yyyy-MM-dd');
-  const dateLabel   = isToday ? 'Today' : isYesterday ? 'Yesterday' : format(parseISO(selectedDate), 'MMMM do, yyyy');
+  const handleStopDateChange = (val: string) => {
+    setStopDate(val);
+    const start = parseISO(startDate);
+    const stop = parseISO(val);
+    const diff = Math.round((stop.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
+    if (diff > 7 && resolutionOverride === 'quarter') {
+      setResolutionOverride(null);
+    }
+  };
+
+  const goToPrevPeriod = () => {
+    const start = parseISO(startDate);
+    const stop = parseISO(stopDate);
+    const diffMs = stop.getTime() - start.getTime();
+    const days = Math.round(diffMs / (1000 * 3600 * 24)) + 1;
+    const newStart = subDays(start, days);
+    const newStop = subDays(stop, days);
+    setStartDate(format(newStart, 'yyyy-MM-dd'));
+    setStopDate(format(newStop, 'yyyy-MM-dd'));
+  };
+
+  const goToNextPeriod = () => {
+    const start = parseISO(startDate);
+    const stop = parseISO(stopDate);
+    const diffMs = stop.getTime() - start.getTime();
+    const days = Math.round(diffMs / (1000 * 3600 * 24)) + 1;
+    let newStart = subDays(start, -days);
+    let newStop = subDays(stop, -days);
+    
+    const today = new Date();
+    if (newStop > today) {
+      const shift = Math.round((today.getTime() - stop.getTime()) / (1000 * 3600 * 24));
+      newStart = subDays(start, -shift);
+      newStop = today;
+    }
+    setStartDate(format(newStart, 'yyyy-MM-dd'));
+    setStopDate(format(newStop, 'yyyy-MM-dd'));
+  };
+
+  const isPeriodEndLatest = (() => {
+    const stop = parseISO(stopDate);
+    const today = parseISO(format(new Date(), 'yyyy-MM-dd'));
+    return stop >= today;
+  })();
+
+  const dateLabel = (() => {
+    if (startDate === stopDate) {
+      const isToday = startDate === format(new Date(), 'yyyy-MM-dd');
+      const isYesterday = startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd');
+      return isToday ? 'Today' : isYesterday ? 'Yesterday' : format(parseISO(startDate), 'MMMM do, yyyy');
+    }
+    return `${format(parseISO(startDate), 'MMM d, yyyy')} — ${format(parseISO(stopDate), 'MMM d, yyyy')}`;
+  })();
 
   const chartData = data?.series.map((item: any) => {
     const consumption = item.electricity ?? null;
@@ -259,13 +339,45 @@ const ConsumptionChart: React.FC = () => {
     const cost = (consumption !== null && spotPrice !== null)
       ? (consumption * spotPrice) / 100
       : null;
+
+    let timeLabel = "";
+    try {
+      const itemDate = new Date(item.start);
+      if (daysDiff <= 1) {
+        timeLabel = format(itemDate, 'HH:mm');
+      } else if (daysDiff <= 5) {
+        timeLabel = format(itemDate, 'MMM d, HH:mm');
+      } else {
+        timeLabel = format(itemDate, 'MMM d');
+      }
+    } catch {
+      timeLabel = item.start;
+    }
+
     return {
-      time:        format(new Date(item.start), 'HH:mm'),
+      time: timeLabel,
       consumption,
       spotPrice,
       cost,
     };
   }) ?? [];
+
+  const xAxisInterval = (() => {
+    const len = chartData.length;
+    if (len === 0) return 0;
+    if (len > 300) return Math.round(len / 8);
+    if (len > 100) return Math.round(len / 6);
+    return Math.round(len / 8) || 1;
+  })();
+
+  const formatOccurrenceTime = (isoString: string) => {
+    try {
+      const date = new Date(isoString);
+      return daysDiff <= 1 ? format(date, 'HH:mm') : format(date, 'MMM d, HH:mm');
+    } catch {
+      return "";
+    }
+  };
 
   const totalKwh = data?.series.reduce((s: number, i: any) => s + (i.electricity ?? 0), 0) ?? 0;
   
@@ -283,11 +395,10 @@ const ConsumptionChart: React.FC = () => {
     return vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : null;
   })();
 
-  // Min/Max Spot Prices
   const spotPrices = data?.series
     .map((item: any) => ({
       price: item.electricity_spot_prices_vat,
-      time: format(new Date(item.start), 'HH:mm'),
+      time: item.start,
     }))
     .filter((item: any) => item.price != null) ?? [];
   
@@ -299,7 +410,6 @@ const ConsumptionChart: React.FC = () => {
     ? spotPrices.reduce((max: any, cur: any) => (cur.price > max.price ? cur : max), spotPrices[0])
     : null;
 
-  // Peak Load (Power in kW = consumption in kWh divided by interval length in hours)
   const peakPower = (() => {
     if (!data?.series || data.series.length === 0) return null;
     let maxVal = -1.0;
@@ -313,7 +423,7 @@ const ConsumptionChart: React.FC = () => {
           const kw = item.electricity / hours;
           if (kw > maxVal) {
             maxVal = kw;
-            maxTime = format(new Date(item.start), 'HH:mm');
+            maxTime = item.start;
           }
         }
       }
@@ -333,18 +443,27 @@ const ConsumptionChart: React.FC = () => {
         </div>
 
         <div className={styles.headerRight}>
-          {/* Date navigator */}
+          {/* Date range navigator */}
           <div className={styles.dateNav}>
-            <Button appearance="subtle" icon={<ChevronLeft24Regular />} onClick={goToPrevDay} size="small" />
+            <Button appearance="subtle" icon={<ChevronLeft24Regular />} onClick={goToPrevPeriod} size="small" />
             <Calendar24Regular style={{ color: tokens.colorBrandForeground1, flexShrink: 0 }} />
             <input
               type="date"
-              value={selectedDate}
-              max={format(new Date(), 'yyyy-MM-dd')}
-              onChange={e => setSelectedDate(e.target.value)}
+              value={startDate}
+              max={stopDate}
+              onChange={e => handleStartDateChange(e.target.value)}
               className={styles.dateInput}
             />
-            <Button appearance="subtle" icon={<ChevronRight24Regular />} onClick={goToNextDay} disabled={isToday} size="small" />
+            <span style={{ color: tokens.colorNeutralForeground4, margin: '0 4px' }}>—</span>
+            <input
+              type="date"
+              value={stopDate}
+              min={startDate}
+              max={format(new Date(), 'yyyy-MM-dd')}
+              onChange={e => handleStopDateChange(e.target.value)}
+              className={styles.dateInput}
+            />
+            <Button appearance="subtle" icon={<ChevronRight24Regular />} onClick={goToNextPeriod} disabled={isPeriodEndLatest} size="small" />
           </div>
 
           {/* Summary stat cards */}
@@ -375,29 +494,60 @@ const ConsumptionChart: React.FC = () => {
 
       {/* Chart card */}
       <div className={styles.chartCard}>
-        {/* Series toggles */}
+        {/* Series toggles & Resolution Switcher */}
         <div className={styles.toggleRow}>
-          <button
-            className={mergeClasses(styles.togglePill, showConsumption ? styles.togglePillEnergy : undefined)}
-            onClick={() => setShowConsumption(v => !v)}
-          >
-            <span className={styles.pillDot} style={{ background: showConsumption ? '#c4314b' : tokens.colorNeutralForeground4 }} />
-            Consumption (kWh)
-          </button>
-          <button
-            className={mergeClasses(styles.togglePill, showSpotPrice ? styles.togglePillSpot : undefined)}
-            onClick={() => setShowSpotPrice(v => !v)}
-          >
-            <span className={styles.pillDot} style={{ background: showSpotPrice ? '#dca70b' : tokens.colorNeutralForeground4 }} />
-            Spot Price incl. VAT (c/kWh)
-          </button>
-          <button
-            className={mergeClasses(styles.togglePill, showCost ? styles.togglePillCost : undefined)}
-            onClick={() => setShowCost(v => !v)}
-          >
-            <span className={styles.pillDot} style={{ background: showCost ? '#8b5cf6' : tokens.colorNeutralForeground4 }} />
-            Interval Cost (€)
-          </button>
+          <div className={styles.toggleLeft}>
+            <button
+              className={mergeClasses(styles.togglePill, showConsumption ? styles.togglePillEnergy : undefined)}
+              onClick={() => setShowConsumption(v => !v)}
+            >
+              <span className={styles.pillDot} style={{ background: showConsumption ? '#c4314b' : tokens.colorNeutralForeground4 }} />
+              Consumption (kWh)
+            </button>
+            <button
+              className={mergeClasses(styles.togglePill, showSpotPrice ? styles.togglePillSpot : undefined)}
+              onClick={() => setShowSpotPrice(v => !v)}
+            >
+              <span className={styles.pillDot} style={{ background: showSpotPrice ? '#dca70b' : tokens.colorNeutralForeground4 }} />
+              Spot Price incl. VAT (c/kWh)
+            </button>
+            <button
+              className={mergeClasses(styles.togglePill, showCost ? styles.togglePillCost : undefined)}
+              onClick={() => setShowCost(v => !v)}
+            >
+              <span className={styles.pillDot} style={{ background: showCost ? '#8b5cf6' : tokens.colorNeutralForeground4 }} />
+              Interval Cost (€)
+            </button>
+          </div>
+
+          {/* Resolution Tabs */}
+          <div style={{ display: 'flex', gap: '4px', background: tokens.colorNeutralBackground3, borderRadius: tokens.borderRadiusMedium, padding: '2px', border: `1px solid ${tokens.colorNeutralStroke2}` }}>
+            {['quarter', 'hour', 'day'].map((r) => {
+              const isDisabled = r === 'quarter' && daysDiff > 7;
+              const isSelected = resolution === r;
+              return (
+                <button
+                  key={r}
+                  disabled={isDisabled}
+                  onClick={() => setResolutionOverride(r)}
+                  style={{
+                    border: 'none',
+                    background: isSelected ? tokens.colorNeutralBackground1 : 'transparent',
+                    color: isSelected ? tokens.colorNeutralForeground1 : tokens.colorNeutralForeground4,
+                    padding: '4px 10px',
+                    borderRadius: tokens.borderRadiusMedium,
+                    fontSize: '11px',
+                    fontWeight: isSelected ? 600 : 400,
+                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    opacity: isDisabled ? 0.4 : 1,
+                    fontFamily: tokens.fontFamilyBase,
+                  }}
+                >
+                  {r === 'quarter' ? '15m' : r === 'hour' ? '1h' : '1d'}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {isLoading ? (
@@ -426,7 +576,7 @@ const ConsumptionChart: React.FC = () => {
                 </defs>
 
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
-                <XAxis dataKey="time" stroke={tokens.colorNeutralForeground4} fontSize={11} tickLine={false} axisLine={false} interval={7} />
+                <XAxis dataKey="time" stroke={tokens.colorNeutralForeground4} fontSize={11} tickLine={false} axisLine={false} interval={xAxisInterval} />
                 <YAxis yAxisId="kwh" orientation="left"
                   stroke={showConsumption ? '#c4314b' : 'transparent'}
                   tick={{ fill: showConsumption ? tokens.colorNeutralForeground3 : 'transparent', fontSize: 11 }}
@@ -508,7 +658,7 @@ const ConsumptionChart: React.FC = () => {
                     <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>Peak Load Time</Text>
                     <Text size={300} weight="semibold" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <Clock20Regular style={{ fontSize: '14px', color: tokens.colorNeutralForeground3 }} />
-                      {peakPower.time}
+                      {formatOccurrenceTime(peakPower.time)}
                     </Text>
                   </div>
                 </>
@@ -533,7 +683,7 @@ const ConsumptionChart: React.FC = () => {
                   </Text>
                   <div>
                     <Text size={300} weight="semibold" style={{ color: tokens.colorPaletteGreenForeground1 }}>{minSpot.price.toFixed(2)} c</Text>
-                    <Text size={100} style={{ color: tokens.colorNeutralForeground4, marginLeft: '6px' }}>at {minSpot.time}</Text>
+                    <Text size={100} style={{ color: tokens.colorNeutralForeground4, marginLeft: '6px' }}>at {formatOccurrenceTime(minSpot.time)}</Text>
                   </div>
                 </div>
               )}
@@ -545,7 +695,7 @@ const ConsumptionChart: React.FC = () => {
                   </Text>
                   <div>
                     <Text size={300} weight="semibold" style={{ color: tokens.colorPaletteRedForeground1 }}>{maxSpot.price.toFixed(2)} c</Text>
-                    <Text size={100} style={{ color: tokens.colorNeutralForeground4, marginLeft: '6px' }}>at {maxSpot.time}</Text>
+                    <Text size={100} style={{ color: tokens.colorNeutralForeground4, marginLeft: '6px' }}>at {formatOccurrenceTime(maxSpot.time)}</Text>
                   </div>
                 </div>
               )}
