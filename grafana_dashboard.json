@@ -41,8 +41,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"electricity\")\n  |> sum()",
-                      "queryType": "flux"
+                      "query": "SELECT sum(\"electricity\") FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -122,8 +123,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "electricity = from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"electricity\")\n\nspot = from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"spot_price_vat\")\n\njoin(tables: {e: electricity, s: spot}, on: [\"_time\", \"gsrn\"])\n  |> map(fn: (r) => ({ _time: r._time, _value: (r._value_e * r._value_s) / 100.0 }))\n  |> sum()",
-                      "queryType": "flux"
+                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / 100.0 FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -203,8 +205,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "electricity = from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"electricity\")\n\nspot = from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"spot_price_vat\")\n\njoined = join(tables: {e: electricity, s: spot}, on: [\"_time\", \"gsrn\"])\n  |> map(fn: (r) => ({ _time: r._time, _value: r._value_e * r._value_s, _value_e: r._value_e }))\n\ntotal_kwh = joined |> sum(column: \"_value_e\") |> renameColumns(info: {\"_value_e\": \"_value\"})\ntotal_cost = joined |> sum(column: \"_value\")\n\njoin(tables: {c: total_cost, k: total_kwh}, on: [\"gsrn\"])\n  |> map(fn: (r) => ({ _value: r._value_c / r._value_k }))",
-                      "queryType": "flux"
+                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / sum(\"electricity\") FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -284,8 +287,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"electricity\")\n  |> map(fn: (r) => ({ r with _value: r._value * 4.0 }))",
-                      "queryType": "flux"
+                      "query": "SELECT max(\"electricity\") * 4.0 FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -365,8 +369,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"electricity\")\n  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false)\n  |> renameColumns(info: {\"_value\": \"Consumption (kWh)\"})",
-                      "queryType": "flux"
+                      "query": "SELECT sum(\"electricity\") AS \"Consumption (kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -384,8 +389,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"spot_price_vat\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> renameColumns(info: {\"_value\": \"Spot Price (VAT incl.) (c/kWh)\"})",
-                      "queryType": "flux"
+                      "query": "SELECT mean(\"spot_price_vat\") AS \"Spot Price (VAT incl.) (c/kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -403,8 +409,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"spot_price\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> renameColumns(info: {\"_value\": \"Spot Price (excl. VAT) (c/kWh)\"})",
-                      "queryType": "flux"
+                      "query": "SELECT mean(\"spot_price\") AS \"Spot Price (excl. VAT) (c/kWh)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -621,8 +628,9 @@
                     "group": "influxdb",
                     "kind": "DataQuery",
                     "spec": {
-                      "query": "electricity = from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"electricity\")\n\nspot = from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> filter(fn: (r) => r[\"gsrn\"] == \"${gsrn}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"spot_price_vat\")\n\njoin(tables: {e: electricity, s: spot}, on: [\"_time\", \"gsrn\"])\n  |> map(fn: (r) => ({ _time: r._time, _value: (r._value_e * r._value_s) / 100.0 }))\n  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false)",
-                      "queryType": "flux"
+                      "query": "SELECT sum(\"electricity\" * \"spot_price_vat\") / 100.0 AS \"Cost (EUR)\" FROM \"helen_electricity\" WHERE \"gsrn\" = '${gsrn}' AND $timeFilter GROUP BY time($__interval) fill(null)",
+                      "queryType": "influxql",
+                      "rawQuery": true
                     },
                     "version": "v0"
                   },
@@ -913,7 +921,7 @@
         "datasource": {
           "name": "${datasource}"
         },
-        "definition": "from(bucket: \"${bucket}\")\n  |> range(start: -3y)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> keep(columns: [\"gsrn\"])\n  |> group()\n  |> unique(column: \"gsrn\")\n  |> renameColumns(info: {\"gsrn\": \"_value\"})",
+        "definition": "SHOW TAG VALUES FROM \"helen_electricity\" WITH KEY = \"gsrn\"",
         "hide": "dontHide",
         "includeAll": false,
         "label": "Meter ID (GSRN)",
@@ -927,8 +935,9 @@
           "group": "influxdb",
           "kind": "DataQuery",
           "spec": {
-            "query": "from(bucket: \"${bucket}\")\n  |> range(start: -3y)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> keep(columns: [\"gsrn\"])\n  |> group()\n  |> unique(column: \"gsrn\")\n  |> renameColumns(info: {\"gsrn\": \"_value\"})",
-            "queryType": "flux"
+            "query": "SHOW TAG VALUES FROM \"helen_electricity\" WITH KEY = \"gsrn\"",
+            "queryType": "influxql",
+            "rawQuery": true
           },
           "version": "v0"
         },
