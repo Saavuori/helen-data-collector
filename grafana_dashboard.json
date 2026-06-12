@@ -913,7 +913,7 @@
         "datasource": {
           "name": "${datasource}"
         },
-        "definition": "import \"influxdata/influxdb/schema\"\n\nschema.tagValues(bucket: \"${bucket}\", tag: \"gsrn\")",
+        "definition": "from(bucket: \"${bucket}\")\n  |> range(start: -3y)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> keep(columns: [\"gsrn\"])\n  |> group()\n  |> unique(column: \"gsrn\")\n  |> renameColumns(info: {\"gsrn\": \"_value\"})",
         "hide": "dontHide",
         "includeAll": false,
         "label": "Meter ID (GSRN)",
@@ -927,7 +927,7 @@
           "group": "influxdb",
           "kind": "DataQuery",
           "spec": {
-            "query": "import \"influxdata/influxdb/schema\"\n\nschema.tagValues(bucket: \"${bucket}\", tag: \"gsrn\")",
+            "query": "from(bucket: \"${bucket}\")\n  |> range(start: -3y)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"helen_electricity\")\n  |> keep(columns: [\"gsrn\"])\n  |> group()\n  |> unique(column: \"gsrn\")\n  |> renameColumns(info: {\"gsrn\": \"_value\"})",
             "queryType": "flux"
           },
           "version": "v0"
