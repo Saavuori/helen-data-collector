@@ -2,17 +2,18 @@
 
 A self-hosted tool that collects your electricity consumption and spot price data from [Helen.fi](https://helen.fi) and displays it in a clean web dashboard. Optionally exports data to InfluxDB.
 
-![Dashboard showing electricity usage and spot price chart](https://github.com/Saavuori/helen-data-collector/raw/main/docs/screenshot.png)
+![HelenFlow Dashboard](docs/images/dashboard.png)
 
 ---
 
 ## Features
 
-- 📊 **Interactive dashboard** — hourly and 15-minute consumption charts with spot prices
-- 🔄 **Automatic session refresh** — re-authenticates with Helen every 20 minutes
-- 📡 **InfluxDB export** — optional background sync of consumption data
-- 🐳 **Single Docker container** — backend + frontend served on one port
-- 🔁 **Auto-updates** — Watchtower pulls new images automatically
+- 📊 **Interactive Dashboard** — hourly and 15-minute consumption charts with spot prices (VAT incl./excl.)
+- 🏡 **Smart Metering Discovery** — automatically discovers and deduplicates active contracts (e.g. supply & grid transmission contracts) to list exactly one row per physical address in the settings
+- 🔄 **Automatic Session Refresh** — handles Helen's complex SSO authentication flow and keeps sessions alive in the background
+- 📡 **InfluxDB Export** — optional background sync of yesterday's and today's consumption data to your local/remote InfluxDB instance
+- 🐳 **Single Docker Container** — Rust backend + React frontend compiled and served on a single port for minimal footprint
+- 🔁 **Auto-Updates** — Watchtower configuration included for seamless automatic container updates in the background
 
 ---
 
@@ -61,9 +62,13 @@ HelenFlow and RuuviGateway use **separate Watchtower scopes** so they update ind
 
 ---
 
-## InfluxDB Export (Optional)
+## InfluxDB Export & Settings (Optional)
 
-Open **Settings** (gear icon) in the UI and fill in your InfluxDB connection details. The app will sync yesterday's and today's consumption data on the configured interval.
+Open **Settings** (gear icon) in the UI to select your active contract (metering point) and configure InfluxDB export:
+
+![HelenFlow Settings](docs/images/settings.png)
+
+The collector automatically syncs yesterday's and today's consumption data to InfluxDB on the configured interval.
 
 Data is written using this schema:
 
