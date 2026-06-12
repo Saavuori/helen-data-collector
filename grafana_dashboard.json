@@ -898,17 +898,31 @@
       "kind": "QueryVariable",
       "spec": {
         "allowCustomValue": true,
-        "current": {},
+        "current": {
+          "text": "",
+          "value": ""
+        },
         "datasource": {
           "name": "${datasource}"
         },
+        "definition": "import \"influxdata/influxdb/schema\"\n\nschema.tagValues(bucket: \"${bucket}\", tag: \"gsrn\")",
         "hide": "dontHide",
         "includeAll": false,
         "label": "Meter ID (GSRN)",
         "multi": false,
         "name": "gsrn",
         "options": [],
-        "query": "import \"influxdata/influxdb/schema\"\n\nschema.tagValues(bucket: \"${bucket}\", tag: \"gsrn\")",
+        "query": {
+          "datasource": {
+            "name": "${datasource}"
+          },
+          "group": "influxdb",
+          "kind": "DataQuery",
+          "spec": {
+            "query": "import \"influxdata/influxdb/schema\"\n\nschema.tagValues(bucket: \"${bucket}\", tag: \"gsrn\")"
+          },
+          "version": "v0"
+        },
         "refresh": "onDashboardLoad",
         "regex": "",
         "skipUrlSync": false,
