@@ -3,6 +3,10 @@ name: Build and Push Docker Image
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   workflow_dispatch:  # Allow manual trigger
 
 env:
