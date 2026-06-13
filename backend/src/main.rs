@@ -290,7 +290,7 @@ struct VersionResponse {
 }
 
 async fn version_handler() -> Json<VersionResponse> {
-    const VERSION: &str = option_env!("VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    let version = option_env!("VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     Json(VersionResponse { version })
 }
 
