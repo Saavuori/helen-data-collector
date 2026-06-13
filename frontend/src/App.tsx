@@ -102,7 +102,7 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    axios.get('/status')
+    axios.get('status')
       .then(res => setIsLoggedIn(res.data.logged_in === true))
       .catch(() => setIsLoggedIn(false));
   }, []);

@@ -180,7 +180,7 @@ const PlanInfo: React.FC = () => {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      const res = await axios.get('/products');
+      const res = await axios.get('products');
       return res.data;
     },
     staleTime: 1000 * 60 * 30,

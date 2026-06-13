@@ -262,7 +262,7 @@ const ConsumptionChart: React.FC = () => {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['consumption', startDate, stopDate, resolution],
     queryFn: async () => {
-      const response = await axios.get('/consumption', {
+      const response = await axios.get('consumption', {
         params: { start: startDate, stop: stopDate, resolution },
       });
       return response.data;

@@ -71,7 +71,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
 
   const loginMutation = useMutation({
     mutationFn: async () => {
-      await axios.post('/login', { username, password });
+      await axios.post('login', { username, password });
     },
     onSuccess: onLoginSuccess,
   });

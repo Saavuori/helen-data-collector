@@ -207,7 +207,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const fetchContracts = async () => {
     setLoadingContracts(true);
     try {
-      const res = await axios.get('/contracts');
+      const res = await axios.get('contracts');
       setContracts(res.data.contracts || []);
       setSelectedGsrn(res.data.selected_gsrn || null);
     } catch (e) {
@@ -219,7 +219,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
 
   const handleSelectContract = async (gsrn: string) => {
     try {
-      await axios.post('/contracts/select', { gsrn });
+      await axios.post('contracts/select', { gsrn });
       setSelectedGsrn(gsrn);
       queryClient.invalidateQueries({ queryKey: ['consumption'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -233,8 +233,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
     const load = async () => {
       try {
         const [cfgRes, stRes] = await Promise.all([
-          axios.get('/influx/config'),
-          axios.get('/influx/status'),
+          axios.get('influx/config'),
+          axios.get('influx/status'),
         ]);
         setCfg(cfgRes.data);
         setStatus(stRes.data);
@@ -244,7 +244,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
     fetchContracts();
     const id = setInterval(async () => {
       try {
-        const r = await axios.get('/influx/status');
+        const r = await axios.get('influx/status');
         setStatus(r.data);
       } catch {}
     }, 15_000);
@@ -254,10 +254,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const handleSave = async () => {
     setLoadingSave(true); setSaveMsg(null);
     try {
-      await axios.post('/influx/config', cfg);
+      await axios.post('influx/config', cfg);
       setSaveMsg('Saved successfully');
       setTimeout(() => setSaveMsg(null), 3000);
-      const r = await axios.get('/influx/status');
+      const r = await axios.get('influx/status');
       setStatus(r.data);
     } catch (e: any) {
       setSaveMsg('Save failed: ' + (e.message ?? 'unknown error'));
@@ -267,7 +267,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const handleTest = async () => {
     setLoadingTest(true); setTestResult(null);
     try {
-      const r = await axios.post('/influx/test', cfg);
+      const r = await axios.post('influx/test', cfg);
       setTestResult(r.data);
     } catch { setTestResult({ ok: false, message: 'Could not reach backend' }); }
     finally { setLoadingTest(false); }
@@ -276,9 +276,9 @@ const Settings: React.FC<SettingsProps> = ({ onClose }) => {
   const handleSync = async () => {
     setLoadingSync(true); setSyncResult(null);
     try {
-      const r = await axios.post('/influx/sync');
+      const r = await axios.post('influx/sync');
       setSyncResult(r.data);
-      const sr = await axios.get('/influx/status');
+      const sr = await axios.get('influx/status');
       setStatus(sr.data);
     } catch { setSyncResult({ ok: false, points: 0, message: 'Sync request failed' }); }
     finally { setLoadingSync(false); }

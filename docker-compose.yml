@@ -5,6 +5,10 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    # To run behind a reverse proxy (like Caddy), uncomment the networks section below
+    # and the external network definition at the bottom of this file.
+    # networks:
+    #   - web-proxy
     volumes:
       - ./credentials.json:/app/credentials.json
       - ./influx_config.json:/app/influx_config.json
@@ -26,3 +30,8 @@ services:
       - DOCKER_API_VERSION=1.45
     labels:
       - "com.centurylinklabs.watchtower.scope=helen-collector"
+
+# To run behind a reverse proxy, uncomment the lines below:
+# networks:
+#   web-proxy:
+#     external: true
