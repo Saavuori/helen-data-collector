@@ -204,6 +204,7 @@ async fn main() {
     let app = Router::new()
         .route("/login",            post(login_handler))
         .route("/status",           get(status_handler))
+        .route("/version",          get(version_handler))
         .route("/consumption",      get(get_consumption_handler))
         .route("/products",         get(get_products_handler))
         .route("/contracts",        get(get_contracts_handler))
@@ -281,6 +282,16 @@ async fn relogin_if_needed(state: &mut AppState) -> bool {
         }
         None => { tracing::warn!("Re-login: no credentials.json"); false }
     }
+}
+
+#[derive(Serialize)]
+struct VersionResponse {
+    version: &'static str,
+}
+
+async fn version_handler() -> Json<VersionResponse> {
+    const VERSION: &str = option_env!("VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    Json(VersionResponse { version })
 }
 
 // ---------------------------------------------------------------------------

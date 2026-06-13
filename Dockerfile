@@ -17,6 +17,7 @@ RUN apk add --no-cache clang lld musl-dev git file
 COPY --from=xx / /
 
 ARG TARGETPLATFORM
+ARG VERSION="unknown"
 WORKDIR /app
 
 # Install target-arch musl-dev via xx-apk (handles aarch64 automatically)
@@ -29,7 +30,7 @@ COPY backend/src ./src
 RUN mkdir -p /out
 
 # Build for target platform, copy binary out, verify architecture
-RUN xx-cargo build --release --target-dir /target && \
+RUN VERSION=${VERSION} xx-cargo build --release --target-dir /target && \
     cp /target/$(xx-cargo --print-target-triple)/release/backend /out/helen-collector && \
     xx-verify /out/helen-collector
 

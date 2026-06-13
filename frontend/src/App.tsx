@@ -100,11 +100,16 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
   });
+  const [version, setVersion] = useState<string>('Unknown');
 
   useEffect(() => {
     axios.get('status')
       .then(res => setIsLoggedIn(res.data.logged_in === true))
       .catch(() => setIsLoggedIn(false));
+
+    axios.get('version')
+      .then(res => setVersion(res.data.version))
+      .catch(() => setVersion('Unknown'));
   }, []);
 
   const toggleTheme = () => {
@@ -137,9 +142,14 @@ const App: React.FC = () => {
               <div className={styles.brandIcon}>
                 <DataBarVertical24Regular />
               </div>
-              <Text size={600} weight="semibold" style={{ letterSpacing: '-0.5px' }}>
-                HelenFlow
-              </Text>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <Text size={500} weight="semibold" style={{ letterSpacing: '-0.5px', lineHeight: 1.1 }}>
+                  HelenFlow
+                </Text>
+                <Text size={100} style={{ color: tokens.colorNeutralForeground4 }}>
+                  {version}
+                </Text>
+              </div>
             </div>
 
             {isLoggedIn && (
