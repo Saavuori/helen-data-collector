@@ -7,6 +7,7 @@
 # SECURITY — Never commit credentials or secrets
 # ---------------------------------------------------------
 credentials.json
+influx_config.json
 *.env
 .env
 .env.*
