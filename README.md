@@ -8,8 +8,9 @@ A self-hosted tool that collects your electricity consumption and spot price dat
 
 ## Features
 
-- 📊 **Interactive Dashboard** — hourly and 15-minute consumption charts with spot prices (VAT incl./excl.)
-- 🏡 **Smart Metering Discovery** — automatically discovers and deduplicates active contracts (e.g. supply & grid transmission contracts) to list exactly one row per physical address in the settings
+- 📊 **Interactive Dashboard** — 15-minute, hourly, daily and monthly consumption charts with spot prices (VAT incl./excl.)
+- 📱 **Mobile-First UI** — installable as a home-screen app, with a tab bar, bottom sheets and a dark/light theme that follows your device
+- 🏡 **Smart Metering Discovery** — automatically discovers and deduplicates active contracts (e.g. supply & grid transmission contracts) to list exactly one row per physical address on the Sites tab
 - 🔄 **Automatic Session Refresh** — handles Helen's complex SSO authentication flow and keeps sessions alive in the background
 - 📡 **InfluxDB Export** — optional background sync of yesterday's and today's consumption data to your local/remote InfluxDB instance
 - 🐳 **Single Docker Container** — Rust backend + React frontend compiled and served on a single port for minimal footprint

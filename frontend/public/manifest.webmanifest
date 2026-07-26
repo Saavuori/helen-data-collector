@@ -1,0 +1,19 @@
+{
+  "name": "HelenFlow — Electricity Data Collector",
+  "short_name": "HelenFlow",
+  "description": "Follow your Helen electricity consumption, spot prices and costs.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#080A0F",
+  "theme_color": "#080A0F",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    }
+  ]
+}
