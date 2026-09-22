@@ -427,7 +427,7 @@ const UsageView: React.FC = () => {
       ? (consumption * spotPrice) / 100
       : null;
 
-    let timeLabel = '';
+    let timeLabel: string;
     try {
       const itemDate = new Date(item.start ?? '');
       if (daysDiff <= 1) {
