@@ -122,7 +122,8 @@ cargo run
 cd frontend
 npm install
 npm run dev
-# Serves UI on http://localhost:5173 (proxies API to :3000)
+# Serves UI on http://localhost:5173 and calls the API on :3000
+# (set VITE_API_URL to use another backend address)
 ```
 
 ---
