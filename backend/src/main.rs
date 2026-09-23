@@ -3,7 +3,7 @@ mod influx;
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{header, request::Parts, HeaderValue, Method, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -11,9 +11,9 @@ use helen_client::{HelenClient, ConsumptionData, Resolution};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use chrono::{NaiveDate, TimeZone, Utc, Duration as ChronoDuration};
+use chrono::{NaiveDate, Utc, Duration as ChronoDuration};
 use chrono_tz::Europe::Helsinki;
 use std::path::PathBuf;
 
@@ -214,7 +214,12 @@ async fn main() {
         .route("/influx/test",      post(influx_test_handler))
         .route("/influx/sync",      post(influx_sync_handler))
         .fallback_service(tower_http::services::ServeDir::new("dist"))
-        .layer(CorsLayer::permissive())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::predicate(is_allowed_origin))
+                .allow_methods([Method::GET, Method::POST])
+                .allow_headers([header::CONTENT_TYPE]),
+        )
         .with_state(shared_state);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
@@ -222,6 +227,31 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     tracing::info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// CORS
+// ---------------------------------------------------------------------------
+
+/// Production serves the UI from this server, which needs no CORS at all. The
+/// Vite dev server is the only cross-origin caller: it runs on another port
+/// of the same machine (see .agents/workflows/local-testing.md). Any other
+/// page open in the user's browser must not be able to read their Helen data
+/// or the InfluxDB token that `GET /influx/config` returns, so only loopback
+/// origins and origins on the host this request was addressed to pass.
+fn is_allowed_origin(origin: &HeaderValue, parts: &Parts) -> bool {
+    let host_of = |url: &str| {
+        reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned))
+    };
+    let Some(origin_host) = origin.to_str().ok().and_then(host_of) else { return false };
+    if matches!(origin_host.as_str(), "localhost" | "127.0.0.1" | "[::1]") {
+        return true;
+    }
+    parts.headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| host_of(&format!("http://{}", h)))
+        .is_some_and(|request_host| request_host == origin_host)
 }
 
 // ---------------------------------------------------------------------------
@@ -494,5 +524,31 @@ async fn influx_sync_handler(
             st.influx_error = Some(e.to_string());
             Json(InfluxSyncResponse { ok: false, points: 0, message: e.to_string() })
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn allowed(origin: &str, host: &str) -> bool {
+        let (parts, ()) = axum::http::Request::builder()
+            .header(header::HOST, host)
+            .body(())
+            .unwrap()
+            .into_parts();
+        is_allowed_origin(&HeaderValue::from_str(origin).unwrap(), &parts)
+    }
+
+    #[test]
+    fn cors_allows_the_dev_server_and_nothing_else() {
+        assert!(allowed("http://localhost:5173", "localhost:3050"));
+        assert!(allowed("http://127.0.0.1:5173", "192.168.1.20:3000"));
+        assert!(allowed("http://[::1]:5173", "[::1]:3000"));
+        assert!(allowed("http://192.168.1.20:5173", "192.168.1.20:3000"));
+        assert!(allowed("http://raspberrypi.local:5173", "raspberrypi.local:3000"));
+
+        assert!(!allowed("https://evil.example", "192.168.1.20:3000"));
+        assert!(!allowed("http://192.168.1.21:5173", "192.168.1.20:3000"));
+        assert!(!allowed("null", "192.168.1.20:3000"));
     }
 }
