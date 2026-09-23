@@ -8,7 +8,11 @@ use crate::helen_client::ConsumptionSeries;
 // Configuration
 // ---------------------------------------------------------------------------
 
+// Fields missing from the file take their defaults. Without this, one absent
+// key made load_config() discard the whole file and silently switch the
+// collector off.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InfluxConfig {
     pub url:              String,
     pub token:            String,
@@ -122,7 +126,11 @@ pub async fn write_points(config: &InfluxConfig, lines: &str) -> Result<usize> {
     if lines.trim().is_empty() { return Ok(0); }
     let count = lines.lines().filter(|l| !l.trim().is_empty()).count();
 
-    let client = Client::new();
+    // The background collector awaits this inline; a write that never
+    // returned would stop all later syncs.
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
     let url = format!("{}/api/v2/write", config.url.trim_end_matches('/'));
     let r = client.post(&url)
         .query(&[
@@ -167,4 +175,43 @@ pub fn to_line_protocol(gsrn: &str, series: &[ConsumptionSeries]) -> String {
     })
     .collect::<Vec<_>>()
     .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_config_keeps_the_fields_it_has() {
+        let cfg: InfluxConfig =
+            serde_json::from_str(r#"{ "url": "http://influx:8086", "token": "t", "enabled": true }"#).unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.url, "http://influx:8086");
+        assert_eq!(cfg.bucket, "electricity");
+        assert_eq!(cfg.interval_minutes, 60);
+    }
+
+    #[test]
+    fn line_protocol_skips_empty_intervals() {
+        let at = |s: &str| Some(s.parse().unwrap());
+        let series = [
+            ConsumptionSeries {
+                start: at("2026-01-10T10:00:00Z"), stop: at("2026-01-10T10:15:00Z"),
+                electricity: Some(0.25), electricity_spot_prices: Some(4.0), electricity_spot_prices_vat: Some(5.02),
+            },
+            ConsumptionSeries {
+                start: at("2026-01-10T10:15:00Z"), stop: None,
+                electricity: None, electricity_spot_prices: None, electricity_spot_prices_vat: None,
+            },
+            ConsumptionSeries {
+                start: at("2026-01-10T10:30:00Z"), stop: None,
+                electricity: None, electricity_spot_prices: Some(3.5), electricity_spot_prices_vat: None,
+            },
+        ];
+        assert_eq!(
+            to_line_protocol("643", &series),
+            "helen_electricity,gsrn=643 electricity=0.25,spot_price=4,spot_price_vat=5.02 1768039200\n\
+             helen_electricity,gsrn=643 spot_price=3.5 1768041000"
+        );
+    }
 }
