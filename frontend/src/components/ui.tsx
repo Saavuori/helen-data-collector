@@ -23,23 +23,23 @@ const useStyles = makeStyles({
     },
   },
 
-  sectionHeader: {
+  pageHeader: {
     display: 'flex',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: '12px',
-    padding: '0 4px 12px',
+    padding: '0 4px',
   },
-  sectionTitle: {
-    fontSize: '18px',
-    fontWeight: 650,
-    letterSpacing: '-0.02em',
-    lineHeight: 1.2,
+  pageTitle: {
+    fontSize: '28px',
+    fontWeight: 700,
+    letterSpacing: '-0.03em',
+    lineHeight: 1.1,
   },
-  sectionSubtitle: {
+  pageSubtitle: {
     display: 'block',
-    marginTop: '2px',
-    fontSize: '13px',
+    marginTop: '4px',
+    fontSize: '14px',
     color: 'var(--text-muted)',
   },
 
@@ -278,19 +278,21 @@ export const Card: React.FC<{
   );
 };
 
-// ── Section header ───────────────────────────────────────────────────────────
+// ── Page header ──────────────────────────────────────────────────────────────
 
-export const SectionHeader: React.FC<{
+/** The large title each tab opens with, plus an optional line under it and
+ *  an optional control on the right. */
+export const PageHeader: React.FC<{
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
 }> = ({ title, subtitle, action }) => {
   const styles = useStyles();
   return (
-    <div className={styles.sectionHeader}>
+    <div className={styles.pageHeader}>
       <div>
-        <h2 className={styles.sectionTitle}>{title}</h2>
-        {subtitle && <span className={styles.sectionSubtitle}>{subtitle}</span>}
+        <h1 className={styles.pageTitle}>{title}</h1>
+        {subtitle && <span className={styles.pageSubtitle}>{subtitle}</span>}
       </div>
       {action}
     </div>

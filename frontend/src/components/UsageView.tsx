@@ -33,7 +33,7 @@ import { useIsMobile } from '../hooks/useMediaQuery';
 import { errorText } from '../api';
 import type { ConsumptionData } from '../types';
 import { rangeDays, shiftRange, toDay } from '../dateRange';
-import { Card, Row, RowList, SegmentedControl, StatTile, EmptyState, Sheet } from './ui';
+import { Card, PageHeader, Row, RowList, SegmentedControl, StatTile, EmptyState, Sheet } from './ui';
 
 // ── Ranges & resolutions ──────────────────────────────────────────────────────
 
@@ -72,20 +72,6 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     gap: '16px',
   },
-  titleRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '12px',
-    padding: '0 4px',
-  },
-  title: {
-    fontSize: '28px',
-    fontWeight: 700,
-    letterSpacing: '-0.03em',
-    lineHeight: 1.1,
-  },
-
   rangeBar: {
     display: 'flex',
     alignItems: 'center',
@@ -504,18 +490,19 @@ const UsageView: React.FC = () => {
 
   return (
     <div className={mergeClasses(styles.view, 'animate-fade-in')}>
-      {/* Title */}
-      <div className={styles.titleRow}>
-        <h1 className={styles.title}>Usage</h1>
-        <Button
-          appearance="subtle"
-          shape="circular"
-          icon={<ArrowClockwise20Regular />}
-          onClick={() => refetch()}
-          disabled={isFetching}
-          aria-label="Refresh"
-        />
-      </div>
+      <PageHeader
+        title="Usage"
+        action={
+          <Button
+            appearance="subtle"
+            shape="circular"
+            icon={<ArrowClockwise20Regular />}
+            onClick={() => refetch()}
+            disabled={isFetching}
+            aria-label="Refresh"
+          />
+        }
+      />
 
       {/* Range navigator */}
       <div className={styles.rangeBar}>

@@ -20,7 +20,7 @@ import {
   Info24Regular,
 } from '@fluentui/react-icons';
 
-import { Card, Row, RowList, SegmentedControl } from './ui';
+import { Card, PageHeader, Row, RowList, SegmentedControl } from './ui';
 import { errorText } from '../api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -60,13 +60,6 @@ const useStyles = makeStyles({
     display: 'flex',
     flexDirection: 'column',
     gap: '16px',
-  },
-  title: {
-    fontSize: '28px',
-    fontWeight: 700,
-    letterSpacing: '-0.03em',
-    lineHeight: 1.1,
-    padding: '0 4px',
   },
   groupLabel: {
     display: 'block',
@@ -280,7 +273,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ version, theme, onThemeChan
 
   return (
     <div className={mergeClasses(styles.view, 'animate-fade-in')}>
-      <h1 className={styles.title}>Settings</h1>
+      <PageHeader title="Settings" />
 
       {/* Appearance */}
       <span className={styles.groupLabel}>Appearance</span>

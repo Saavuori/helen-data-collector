@@ -10,7 +10,7 @@ import {
 
 import { usePalette } from '../theme';
 import { errorText, localized } from '../api';
-import { Card, EmptyState, Row, RowList } from './ui';
+import { Card, EmptyState, PageHeader, Row, RowList } from './ui';
 import type { Product } from '../types';
 
 const fmtDate = (value: string | null | undefined) =>
@@ -23,19 +23,6 @@ const useStyles = makeStyles({
     display: 'flex',
     flexDirection: 'column',
     gap: '16px',
-  },
-  title: {
-    fontSize: '28px',
-    fontWeight: 700,
-    letterSpacing: '-0.03em',
-    lineHeight: 1.1,
-    padding: '0 4px',
-  },
-  subtitle: {
-    display: 'block',
-    marginTop: '4px',
-    fontSize: '14px',
-    color: 'var(--text-muted)',
   },
   list: {
     display: 'grid',
@@ -149,10 +136,7 @@ const PlanView: React.FC = () => {
 
   return (
     <div className={mergeClasses(styles.view, 'animate-fade-in')}>
-      <div>
-        <h1 className={styles.title}>Plan</h1>
-        <span className={styles.subtitle}>Products and pricing on your active contract</span>
-      </div>
+      <PageHeader title="Plan" subtitle="Products and pricing on your active contract" />
 
       {isLoading ? (
         <div className={styles.loading}>
