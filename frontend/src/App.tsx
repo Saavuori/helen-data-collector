@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useQueryClient } from '@tanstack/react-query';
 import { FluentProvider, Spinner, makeStyles } from '@fluentui/react-components';
 
 import LoginForm from './components/LoginForm';
@@ -56,6 +57,7 @@ const prefersLight = () =>
 
 const App: React.FC = () => {
   const styles = useStyles();
+  const queryClient = useQueryClient();
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [tab, setTab] = useState<TabKey>('usage');
   const [version, setVersion] = useState<string>('');
@@ -94,6 +96,10 @@ const App: React.FC = () => {
   const toggleTheme = () => selectTheme(theme === 'dark' ? 'light' : 'dark');
 
   const handleSignOut = () => {
+    // Query results outlive their view for a few minutes; without this the
+    // next account to sign in would be shown the previous one's sites, plan
+    // and usage.
+    queryClient.clear();
     setIsLoggedIn(false);
     setTab('usage');
   };
