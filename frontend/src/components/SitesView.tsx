@@ -10,7 +10,7 @@ import {
 } from '@fluentui/react-icons';
 
 import { usePalette } from '../theme';
-import { Card, EmptyState, Row, RowList } from './ui';
+import { Card, EmptyState, PageHeader, Row, RowList } from './ui';
 import type { ContractsResponse } from '../types';
 
 /** Helen dates arrive as `2023-01-01T00:00:00` with no zone; only the day
@@ -30,19 +30,6 @@ const useStyles = makeStyles({
     display: 'flex',
     flexDirection: 'column',
     gap: '16px',
-  },
-  title: {
-    fontSize: '28px',
-    fontWeight: 700,
-    letterSpacing: '-0.03em',
-    lineHeight: 1.1,
-    padding: '0 4px',
-  },
-  subtitle: {
-    display: 'block',
-    marginTop: '4px',
-    fontSize: '14px',
-    color: 'var(--text-muted)',
   },
   list: {
     display: 'grid',
@@ -152,10 +139,7 @@ const SitesView: React.FC = () => {
 
   return (
     <div className={mergeClasses(styles.view, 'animate-fade-in')}>
-      <div>
-        <h1 className={styles.title}>Sites</h1>
-        <span className={styles.subtitle}>Delivery sites linked to your Helen account</span>
-      </div>
+      <PageHeader title="Sites" subtitle="Delivery sites linked to your Helen account" />
 
       {isLoading ? (
         <div className={styles.loading}>

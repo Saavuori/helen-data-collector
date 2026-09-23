@@ -32,21 +32,22 @@ import { usePalette, type Palette } from '../theme';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { errorText } from '../api';
 import type { ConsumptionData } from '../types';
-import { Card, Row, RowList, SegmentedControl, StatTile, EmptyState, Sheet } from './ui';
+import { rangeDays, shiftRange, toDay } from '../dateRange';
+import { Card, PageHeader, Row, RowList, SegmentedControl, StatTile, EmptyState, Sheet } from './ui';
 
 // ── Ranges & resolutions ──────────────────────────────────────────────────────
 
-const today = () => format(new Date(), 'yyyy-MM-dd');
-const yesterday = () => format(subDays(new Date(), 1), 'yyyy-MM-dd');
+const today = () => toDay(new Date());
+const yesterday = () => toDay(subDays(new Date(), 1));
 
 type PresetKey = 'today' | 'yesterday' | '7d' | '30d' | '12m';
 
 const PRESETS: { key: PresetKey; label: string; range: () => [string, string] }[] = [
   { key: 'today', label: 'Today', range: () => [today(), today()] },
   { key: 'yesterday', label: 'Yesterday', range: () => [yesterday(), yesterday()] },
-  { key: '7d', label: '7 days', range: () => [format(subDays(new Date(), 6), 'yyyy-MM-dd'), today()] },
-  { key: '30d', label: '30 days', range: () => [format(subDays(new Date(), 29), 'yyyy-MM-dd'), today()] },
-  { key: '12m', label: '12 months', range: () => [format(subDays(new Date(), 364), 'yyyy-MM-dd'), today()] },
+  { key: '7d', label: '7 days', range: () => [toDay(subDays(new Date(), 6)), today()] },
+  { key: '30d', label: '30 days', range: () => [toDay(subDays(new Date(), 29)), today()] },
+  { key: '12m', label: '12 months', range: () => [toDay(subDays(new Date(), 364)), today()] },
 ];
 
 type Resolution = 'quarter' | 'hour' | 'day' | 'month';
@@ -58,6 +59,11 @@ const RESOLUTION_LABELS: Record<Resolution, string> = {
   month: '1mo',
 };
 
+/** 15-minute data over more than a week is too dense to chart, and a monthly
+ *  bar needs at least a month of range. */
+const resolutionAllowed = (r: Resolution, days: number) =>
+  !(r === 'quarter' && days > 7) && !(r === 'month' && days < 28);
+
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const useStyles = makeStyles({
@@ -66,20 +72,6 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     gap: '16px',
   },
-  titleRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '12px',
-    padding: '0 4px',
-  },
-  title: {
-    fontSize: '28px',
-    fontWeight: 700,
-    letterSpacing: '-0.03em',
-    lineHeight: 1.1,
-  },
-
   rangeBar: {
     display: 'flex',
     alignItems: 'center',
@@ -332,20 +324,14 @@ const UsageView: React.FC = () => {
   const [showCost, setShowCost] = useState(true);
   const [resolutionOverride, setResolutionOverride] = useState<Resolution | null>(null);
 
-  const daysDiff = (() => {
-    try {
-      const start = parseISO(startDate);
-      const stop = parseISO(stopDate);
-      return Math.round((stop.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
-    } catch {
-      return 1;
-    }
-  })();
+  const daysDiff = rangeDays(startDate, stopDate);
 
-  const resolution: Resolution = resolutionOverride || (
-    daysDiff <= 2 ? 'quarter' :
-    daysDiff <= 14 ? 'hour' : 'day'
-  );
+  // A manual pick only holds while the range allows it; outside that the
+  // automatic choice takes over again.
+  const resolution: Resolution =
+    resolutionOverride && resolutionAllowed(resolutionOverride, daysDiff)
+      ? resolutionOverride
+      : daysDiff <= 2 ? 'quarter' : daysDiff <= 14 ? 'hour' : 'day';
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['consumption', startDate, stopDate, resolution],
@@ -357,24 +343,12 @@ const UsageView: React.FC = () => {
     },
   });
 
-  // A manually picked resolution can become invalid when the range grows.
-  const clearImpossibleOverride = (start: Date, stop: Date) => {
-    const diff = Math.round((stop.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
-    if (diff > 7 && resolutionOverride === 'quarter') {
-      setResolutionOverride(null);
-    }
-  };
-
   const handleStartDateChange = (val: string) => {
-    if (!val) return;
-    setStartDate(val);
-    clearImpossibleOverride(parseISO(val), parseISO(stopDate));
+    if (val) setStartDate(val);
   };
 
   const handleStopDateChange = (val: string) => {
-    if (!val) return;
-    setStopDate(val);
-    clearImpossibleOverride(parseISO(startDate), parseISO(val));
+    if (val) setStopDate(val);
   };
 
   const applyPreset = (key: PresetKey) => {
@@ -391,23 +365,12 @@ const UsageView: React.FC = () => {
   })?.key;
 
   const shiftPeriod = (direction: -1 | 1) => {
-    const start = parseISO(startDate);
-    const stop = parseISO(stopDate);
-    const days = Math.round((stop.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
-    let newStart = subDays(start, -days * direction);
-    let newStop = subDays(stop, -days * direction);
-
-    const now = new Date();
-    if (direction === 1 && newStop > now) {
-      const shift = Math.round((now.getTime() - stop.getTime()) / (1000 * 3600 * 24));
-      newStart = subDays(start, -shift);
-      newStop = now;
-    }
-    setStartDate(format(newStart, 'yyyy-MM-dd'));
-    setStopDate(format(newStop, 'yyyy-MM-dd'));
+    const [start, stop] = shiftRange(startDate, stopDate, direction, today());
+    setStartDate(start);
+    setStopDate(stop);
   };
 
-  const isPeriodEndLatest = parseISO(stopDate) >= parseISO(today());
+  const isPeriodEndLatest = stopDate >= today();
 
   const dateLabel = (() => {
     if (startDate === stopDate) {
@@ -516,7 +479,7 @@ const UsageView: React.FC = () => {
   const resolutionOptions = (['quarter', 'hour', 'day', 'month'] as Resolution[]).map(r => ({
     value: r,
     label: RESOLUTION_LABELS[r],
-    disabled: (r === 'quarter' && daysDiff > 7) || (r === 'month' && daysDiff < 28),
+    disabled: !resolutionAllowed(r, daysDiff),
   }));
 
   const legend = [
@@ -527,18 +490,19 @@ const UsageView: React.FC = () => {
 
   return (
     <div className={mergeClasses(styles.view, 'animate-fade-in')}>
-      {/* Title */}
-      <div className={styles.titleRow}>
-        <h1 className={styles.title}>Usage</h1>
-        <Button
-          appearance="subtle"
-          shape="circular"
-          icon={<ArrowClockwise20Regular />}
-          onClick={() => refetch()}
-          disabled={isFetching}
-          aria-label="Refresh"
-        />
-      </div>
+      <PageHeader
+        title="Usage"
+        action={
+          <Button
+            appearance="subtle"
+            shape="circular"
+            icon={<ArrowClockwise20Regular />}
+            onClick={() => refetch()}
+            disabled={isFetching}
+            aria-label="Refresh"
+          />
+        }
+      />
 
       {/* Range navigator */}
       <div className={styles.rangeBar}>

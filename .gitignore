@@ -20,8 +20,8 @@ config.local.*
 # ---------------------------------------------------------
 backend/target/
 backend/target_new/
+backend/dist/
 **/*.rs.bk
-Cargo.lock          # Remove this line if you want to track lock file (binaries should keep it)
 
 # ---------------------------------------------------------
 # Frontend — Node / npm / Vite

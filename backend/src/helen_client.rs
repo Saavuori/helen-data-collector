@@ -7,7 +7,7 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
 use regex::Regex;
 
@@ -21,6 +21,18 @@ const HELEN_LOGIN_HOST: &str = "https://login.helen.fi";
 const TUPAS_LOGIN_URL: &str =
     "https://www.helen.fi/hcc/TupasLoginFrame?service=account&locale=fi";
 const LOGIN_API_VERSION: &str = "v21";
+
+/// Every Helen call runs while the handler holds the one `AppState` lock, so a
+/// request that never answers would freeze the whole app, background tasks
+/// included. Each request of the login flow and each API call gets this long.
+const HELEN_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The SSO flow takes a handful of hops; more than this means a loop.
+const MAX_REDIRECTS: usize = 20;
+
+/// Error text for a missing access-token cookie. The handlers look for it to
+/// decide that the session expired and a re-login is worth a try.
+pub const NO_ACCESS_TOKEN: &str = "No access token";
 
 // ---------------------------------------------------------------------------
 // Public data types
@@ -84,7 +96,6 @@ pub struct HelenClient {
     jar:               Arc<Jar>,
     client:            Client,
     selected_contract: Option<serde_json::Value>,
-    latest_login_time: Option<DateTime<Utc>>,
     selected_gsrn:     Option<String>,
 }
 
@@ -95,7 +106,6 @@ impl HelenClient {
             jar,
             client,
             selected_contract: None,
-            latest_login_time: None,
             selected_gsrn: None,
         })
     }
@@ -118,6 +128,7 @@ impl HelenClient {
         let client = Client::builder()
             .cookie_provider(Arc::clone(&jar))
             .redirect(Policy::none())
+            .timeout(HELEN_REQUEST_TIMEOUT)
             .user_agent(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
                  AppleWebKit/537.36 (KHTML, like Gecko) \
@@ -125,16 +136,6 @@ impl HelenClient {
             )
             .build()?;
         Ok((jar, client))
-    }
-
-    // -----------------------------------------------------------------------
-    // Session helpers
-    // -----------------------------------------------------------------------
-
-    pub fn is_session_valid(&self) -> bool {
-        self.latest_login_time
-            .map(|t| Utc::now() - t < Duration::hours(1))
-            .unwrap_or(false)
     }
 
     // -----------------------------------------------------------------------
@@ -155,9 +156,10 @@ impl HelenClient {
         // --- _send_login_request --------------------------------------------
 
         // 1. GET TupasLoginFrame, read form action + method
-        let tupas_body = self.get_following_redirects(TUPAS_LOGIN_URL).await?;
-        let (auth_url, auth_method) =
-            Self::parse_form_action_and_method(&tupas_body, "")?;
+        let tupas_body = self
+            .request_following_redirects(TUPAS_LOGIN_URL, "GET", None, None)
+            .await?;
+        let (auth_url, auth_method) = Self::parse_form_action_and_method(&tupas_body)?;
         tracing::info!("Auth URL: {} ({})", auth_url, auth_method);
 
         // 2. Call the authorization URL with its own method
@@ -166,8 +168,7 @@ impl HelenClient {
             .await?;
 
         // 3. POST credentials — action may be a path so prepend login host
-        let (login_path, _) =
-            Self::parse_form_action_and_method(&auth_body, "")?;
+        let (login_path, _) = Self::parse_form_action_and_method(&auth_body)?;
         let login_url = if login_path.starts_with("http") {
             login_path
         } else {
@@ -183,8 +184,7 @@ impl HelenClient {
         // --- _proceed_to_main_page_from_login_response ----------------------
 
         // Step A: GET continue_url with code + state params
-        let (continue_url, _) =
-            Self::parse_form_action_and_method(&login_body, "")?;
+        let (continue_url, _) = Self::parse_form_action_and_method(&login_body)?;
         let code  = Self::parse_input_value(&login_body, "code")?;
         let state = Self::parse_input_value(&login_body, "state")?;
         let continue_params = [("code", code.as_str()), ("state", state.as_str())];
@@ -204,8 +204,7 @@ impl HelenClient {
             .await?;
 
         // Step C: final GET with code + state
-        let (final_url, _) =
-            Self::parse_form_action_and_method(&auth_resp_body, "")?;
+        let (final_url, _) = Self::parse_form_action_and_method(&auth_resp_body)?;
         let final_code  = Self::parse_input_value(&auth_resp_body, "code")?;
         let final_state = Self::parse_input_value(&auth_resp_body, "state")?;
         let final_params = [
@@ -221,7 +220,6 @@ impl HelenClient {
         self.get_token()
             .context("Login flow completed but no access-token cookie found — wrong credentials?")?;
 
-        self.latest_login_time = Some(Utc::now());
         self.refresh_state().await?;
 
         tracing::info!("Login successful");
@@ -231,10 +229,6 @@ impl HelenClient {
     // -----------------------------------------------------------------------
     // HTTP helpers  (mirror _make_url_request + _follow_redirects)
     // -----------------------------------------------------------------------
-
-    async fn get_following_redirects(&self, url: &str) -> Result<String> {
-        self.request_following_redirects(url, "GET", None, None).await
-    }
 
     /// Send a request and manually follow Location-header redirects.
     /// After any redirect we switch to GET (matches requests library behaviour).
@@ -249,7 +243,7 @@ impl HelenClient {
         let mut current_method = method.to_uppercase();
         let mut first          = true;
 
-        loop {
+        for _ in 0..=MAX_REDIRECTS {
             let mut req = match current_method.as_str() {
                 "POST" => self.client.post(&current_url),
                 _      => self.client.get(&current_url),
@@ -269,8 +263,7 @@ impl HelenClient {
             if status.is_redirection() {
                 let location = resp
                     .headers()
-                    .get("location")
-                    .or_else(|| resp.headers().get("Location"))
+                    .get(reqwest::header::LOCATION)
                     .and_then(|v| v.to_str().ok())
                     .map(|s| s.to_string())
                     .context("Redirect with no Location header")?;
@@ -296,6 +289,7 @@ impl HelenClient {
 
             return Ok(resp.text().await?);
         }
+        Err(anyhow!("Gave up after {} redirects, last at {}", MAX_REDIRECTS, current_url))
     }
 
     // -----------------------------------------------------------------------
@@ -303,18 +297,14 @@ impl HelenClient {
     // -----------------------------------------------------------------------
 
     /// Returns (action_url, method) from the first <form>.
-    fn parse_form_action_and_method(html: &str, base: &str) -> Result<(String, String)> {
+    fn parse_form_action_and_method(html: &str) -> Result<(String, String)> {
         let doc  = Html::parse_document(html);
         let sel  = Selector::parse("form").unwrap();
         let form = doc.select(&sel).next().context("No <form> in page")?;
 
-        let action = form.value().attr("action")
-            .context("Form has no action attribute")?;
-        let action_url = if action.starts_with("http") || base.is_empty() {
-            action.to_string()
-        } else {
-            format!("{}{}", base, action)
-        };
+        let action_url = form.value().attr("action")
+            .context("Form has no action attribute")?
+            .to_string();
 
         let method = form.value().attr("method")
             .unwrap_or("GET")
@@ -364,17 +354,15 @@ impl HelenClient {
             "https://www.helen.fi",
             "https://login.helen.fi",
         ] {
-            if let Ok(url) = domain.parse::<reqwest::Url>() {
-                if let Some(cookies) = self.jar.cookies(&url) {
-                    if let Ok(s) = cookies.to_str() {
-                        for part in s.split(';').map(str::trim) {
-                            for prefix in ["access-token=", "access_token="] {
-                                if let Some(token) = part.strip_prefix(prefix) {
-                                    tracing::info!("Found token on {}", domain);
-                                    return Some(token.to_string());
-                                }
-                            }
-                        }
+            let Ok(url) = domain.parse::<reqwest::Url>() else { continue };
+            let Some(cookies) = self.jar.cookies(&url) else { continue };
+            let Ok(s) = cookies.to_str() else { continue };
+            for part in s.split(';').map(str::trim) {
+                for prefix in ["access-token=", "access_token="] {
+                    if let Some(token) = part.strip_prefix(prefix) {
+                        // Runs before every API call; keep it out of the info log.
+                        tracing::debug!("Found token on {}", domain);
+                        return Some(token.to_string());
                     }
                 }
             }
@@ -408,7 +396,7 @@ impl HelenClient {
     }
 
     pub async fn fetch_contracts(&self) -> Result<Vec<serde_json::Value>> {
-        let token = self.get_token().context("No access token")?;
+        let token = self.get_token().context(NO_ACCESS_TOKEN)?;
         let url   = format!("{}/contract/list", HELEN_API_BASE);
 
         let res = self.client.get(&url)
@@ -496,13 +484,6 @@ impl HelenClient {
             .context("No selected contract — call login() first")
     }
 
-    pub fn delivery_site_id(&self) -> Result<String> {
-        self.selected_contract.as_ref()
-            .and_then(|c| c["delivery_site"]["id"].as_u64())
-            .map(|id| id.to_string())
-            .context("No delivery_site id in selected contract")
-    }
-
     pub fn contract_id(&self) -> Result<String> {
         self.selected_contract.as_ref()
             .and_then(|c| {
@@ -524,8 +505,8 @@ impl HelenClient {
         resolution: Resolution,
     ) -> Result<ConsumptionData> {
         let gsrn  = self.gsrn()?;
-        let token = self.get_token().context("No access token")?;
-        let (start_utc, stop_utc) = Self::fi_date_range_to_utc(start, stop, true);
+        let token = self.get_token().context(NO_ACCESS_TOKEN)?;
+        let (start_utc, stop_utc) = Self::fi_date_range_to_utc(start, stop)?;
 
         let url = format!("{}/chart-data/{}/electricity", HELEN_API_BASE, gsrn);
         tracing::info!("Fetching consumption from {}", url);
@@ -543,7 +524,7 @@ impl HelenClient {
 
         let status = res.status();
         let body   = res.text().await?;
-        tracing::info!("Helen API raw response body: {}", body);
+        tracing::debug!("Helen API raw response body: {}", body);
         if !status.is_success() {
             return Err(anyhow!("Consumption fetch failed ({}): {}", status, body));
         }
@@ -562,7 +543,7 @@ impl HelenClient {
     }
 
     pub async fn get_products(&self) -> Result<serde_json::Value> {
-        let token       = self.get_token().context("No access token")?;
+        let token       = self.get_token().context(NO_ACCESS_TOKEN)?;
         let contract_id = self.contract_id()?;
         let url         = format!("{}/contract/{}/products", HELEN_OMA_API_V26, contract_id);
         tracing::info!("Fetching products from {}", url);
@@ -582,84 +563,109 @@ impl HelenClient {
             .with_context(|| format!("Failed to decode products JSON: {}", body))
     }
 
-    pub async fn get_measurements(
-        &self,
-        start:      NaiveDate,
-        stop:       NaiveDate,
-        resolution: Resolution,
-    ) -> Result<serde_json::Value> {
-        let token            = self.get_token().context("No access token")?;
-        let delivery_site_id = self.delivery_site_id()?;
-        let (start_utc, stop_utc) = Self::fi_date_range_to_utc(start, stop, false);
-
-        let is_transfer = self.selected_contract.as_ref()
-            .and_then(|c| c["domain"].as_str())
-            .map(|d| d == "electricity-transfer")
-            .unwrap_or(false);
-
-        let endpoint = if is_transfer {
-            "/measurements/electricity-transfer"
-        } else {
-            "/measurements/electricity"
-        };
-
-        let url = format!("{}{}", HELEN_OMA_API_V26, endpoint);
-        tracing::info!("Fetching measurements from {}", url);
-
-        let res = self.client.get(&url)
-            .query(&[
-                ("begin",            start_utc.to_rfc3339()),
-                ("end",              stop_utc.to_rfc3339()),
-                ("resolution",       resolution.as_str().to_string()),
-                ("delivery_site_id", delivery_site_id),
-                ("allow_transfer",   "true".to_string()),
-            ])
-            .header("Authorization", format!("Bearer {}", token))
-            .header("Accept", "application/json")
-            .send().await?;
-
-        let status = res.status();
-        let body   = res.text().await?;
-        if !status.is_success() {
-            return Err(anyhow!("Measurements fetch failed ({}): {}", status, body));
-        }
-
-        serde_json::from_str(&body)
-            .with_context(|| format!("Failed to decode measurements JSON: {}", body))
-    }
-
     // -----------------------------------------------------------------------
     // Time helpers
     // -----------------------------------------------------------------------
 
-    fn fi_date_range_to_utc(
-        start:             NaiveDate,
-        end:               NaiveDate,
-        round_end_to_hour: bool,
-    ) -> (DateTime<Utc>, DateTime<Utc>) {
-        let local_start = Helsinki
-            .from_local_datetime(&start.and_time(NaiveTime::MIN))
-            .earliest()
-            .expect("Invalid start datetime");
+    /// Helsinki calendar days `start..=end` as a half-open UTC range, from the
+    /// local midnight that opens `start` to the one that closes `end`.
+    fn fi_date_range_to_utc(start: NaiveDate, end: NaiveDate) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
+        // Finland changes clocks at 03:00/04:00, so midnight always exists.
+        let midnight = |day: NaiveDate| {
+            Helsinki
+                .from_local_datetime(&day.and_time(NaiveTime::MIN))
+                .earliest()
+                .map(|t| t.with_timezone(&Utc))
+                .context("No Helsinki midnight on that day")
+        };
+        let after_end = end.succ_opt().context("Stop date out of range")?;
+        Ok((midnight(start)?, midnight(after_end)?))
+    }
 
-        let end_naive = end.and_hms_milli_opt(23, 59, 59, 999).unwrap();
-        let local_end = Helsinki
-            .from_local_datetime(&end_naive)
-            .latest()
-            .expect("Invalid end datetime");
+}
 
-        let utc_start: DateTime<Utc> = local_start.with_timezone(&Utc);
-        let mut utc_end: DateTime<Utc> = local_end.with_timezone(&Utc);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+    use serde_json::json;
 
-        if round_end_to_hour {
-            if utc_end.minute() > 0 || utc_end.second() > 0 || utc_end.nanosecond() > 0 {
-                utc_end = (utc_end + Duration::hours(1))
-                    .with_minute(0).unwrap()
-                    .with_second(0).unwrap()
-                    .with_nanosecond(0).unwrap();
-            }
-        }
+    fn utc(s: &str) -> DateTime<Utc> {
+        s.parse().unwrap()
+    }
 
-        (utc_start, utc_end)
+    #[test]
+    fn date_range_covers_whole_helsinki_days() {
+        let d = |s: &str| s.parse::<NaiveDate>().unwrap();
+        // Winter time, UTC+2.
+        let (start, stop) = HelenClient::fi_date_range_to_utc(d("2026-01-10"), d("2026-01-10")).unwrap();
+        assert_eq!((start, stop), (utc("2026-01-09T22:00:00Z"), utc("2026-01-10T22:00:00Z")));
+        // Spring forward on 29 March: the day is 23 hours long.
+        let (start, stop) = HelenClient::fi_date_range_to_utc(d("2026-03-29"), d("2026-03-29")).unwrap();
+        assert_eq!((start, stop), (utc("2026-03-28T22:00:00Z"), utc("2026-03-29T21:00:00Z")));
+        // Fall back on 25 October: 25 hours.
+        let (start, stop) = HelenClient::fi_date_range_to_utc(d("2026-10-25"), d("2026-10-25")).unwrap();
+        assert_eq!((start, stop), (utc("2026-10-24T21:00:00Z"), utc("2026-10-25T22:00:00Z")));
+        assert!(HelenClient::fi_date_range_to_utc(d("2026-01-01"), NaiveDate::MAX).is_err());
+    }
+
+    #[test]
+    fn active_contracts_are_current_deduplicated_and_supply_first() {
+        let day = |offset: i64| (Utc::now() + Duration::days(offset)).format("%Y-%m-%dT%H:%M:%S").to_string();
+        let contracts = vec![
+            json!({ "gsrn": "A", "domain": "electricity-transfer", "start_date": day(-10) }),
+            json!({ "gsrn": "A", "domain": "electricity",          "start_date": day(-400) }),
+            json!({ "gsrn": "B", "domain": "electricity",          "start_date": day(-5), "end_date": day(-1) }),
+            json!({ "gsrn": "C", "domain": "electricity",          "start_date": day(5) }),
+            json!({ "gsrn": "D", "domain": "electricity-production", "start_date": day(-5) }),
+            json!({ "gsrn": "E", "domain": "electricity-transfer", "start_date": day(-3) }),
+        ];
+        let active = HelenClient::filter_active_contracts(&contracts);
+        let picked: Vec<_> = active.iter()
+            .map(|c| (c["gsrn"].as_str().unwrap(), c["domain"].as_str().unwrap()))
+            .collect();
+        assert_eq!(picked, [("A", "electricity"), ("E", "electricity-transfer")]);
+    }
+
+    #[test]
+    fn form_and_link_parsing() {
+        let html = r#"<form action="/login?x=1" method="post">
+            <input name="code" value="abc"><input name="state" value="xyz"></form>
+            <a href="https://api.omahelen.fi/v25/login/callback">go</a>"#;
+        assert_eq!(
+            HelenClient::parse_form_action_and_method(html).unwrap(),
+            ("/login?x=1".to_string(), "POST".to_string())
+        );
+        assert_eq!(HelenClient::parse_input_value(html, "state").unwrap(), "xyz");
+        assert!(HelenClient::parse_input_value(html, "missing").is_err());
+        assert_eq!(
+            HelenClient::fix_oma_helen_api_url(&HelenClient::parse_first_link(html).unwrap()),
+            "https://api.oma.helen.fi/v21/login/callback"
+        );
+    }
+
+    /// A server that redirects every request back to itself.
+    async fn redirect_loop_server() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = axum::Router::new().fallback(|| async {
+            axum::response::Redirect::temporary("/again")
+        });
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{}/", addr)
+    }
+
+    #[tokio::test]
+    async fn redirect_loop_is_an_error_not_a_hang() {
+        let url = redirect_loop_server().await;
+        let client = HelenClient::new().unwrap();
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            client.request_following_redirects(&url, "GET", None, None),
+        )
+        .await
+        .expect("redirect loop never ended")
+        .unwrap_err();
+        assert!(err.to_string().contains("redirects"), "{err}");
     }
 }
