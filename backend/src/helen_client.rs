@@ -7,7 +7,7 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
 use regex::Regex;
 
@@ -587,6 +587,7 @@ impl HelenClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
     use serde_json::json;
 
     fn utc(s: &str) -> DateTime<Utc> {

@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use helen_client::{HelenClient, ConsumptionData, Resolution};
+use helen_client::{HelenClient, ConsumptionData, Resolution, NO_ACCESS_TOKEN};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -120,27 +120,25 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let mut client    = HelenClient::new().expect("Failed to create HelenClient");
-    let mut logged_in = false;
+    let mut state = AppState {
+        client:           HelenClient::new().expect("Failed to create HelenClient"),
+        logged_in:        false,
+        influx_last_sync: None,
+        influx_error:     None,
+    };
 
     // Auto-login from saved credentials
     if let Some(creds) = load_credentials() {
         tracing::info!("Found saved credentials for '{}', attempting auto-login…", creds.username);
-        client.set_selected_gsrn(creds.selected_gsrn.clone());
-        match client.login(&creds.username, &creds.password).await {
-            Ok(()) => { tracing::info!("Auto-login successful"); logged_in = true; }
+        match login_with(&mut state, &creds).await {
+            Ok(()) => tracing::info!("Auto-login successful"),
             Err(e) => tracing::warn!("Auto-login failed ({}), will require manual login", e),
         }
     } else {
         tracing::info!("No saved credentials found — manual login required");
     }
 
-    let shared_state = Arc::new(Mutex::new(AppState {
-        client,
-        logged_in,
-        influx_last_sync: None,
-        influx_error:     None,
-    }));
+    let shared_state = Arc::new(Mutex::new(state));
 
     // ── Background: token refresh every 20 min ─────────────────────────────
     {
@@ -151,10 +149,8 @@ async fn main() {
                 tokio::time::sleep(interval).await;
                 tracing::info!("Token refresh: re-logging in…");
                 if let Some(creds) = load_credentials() {
-                    let mut st = s.lock().await;
-                    st.client.set_selected_gsrn(creds.selected_gsrn.clone());
-                    match st.client.login(&creds.username, &creds.password).await {
-                        Ok(()) => { st.logged_in = true; tracing::info!("Token refresh: success"); }
+                    match login_with(&mut *s.lock().await, &creds).await {
+                        Ok(()) => tracing::info!("Token refresh: success"),
                         Err(e) => tracing::warn!("Token refresh failed: {}", e),
                     }
                 }
@@ -297,21 +293,45 @@ async fn run_influx_sync(
 }
 
 // ---------------------------------------------------------------------------
-// Auth helper
+// Auth helpers
 // ---------------------------------------------------------------------------
 
-async fn relogin_if_needed(state: &mut AppState) -> bool {
-    match load_credentials() {
-        Some(creds) => {
-            tracing::info!("Access token expired — on-demand re-login…");
-            state.client.set_selected_gsrn(creds.selected_gsrn.clone());
-            match state.client.login(&creds.username, &creds.password).await {
-                Ok(()) => { state.logged_in = true; tracing::info!("Re-login ok"); true }
-                Err(e) => { tracing::warn!("Re-login failed: {}", e); false }
-            }
-        }
-        None => { tracing::warn!("Re-login: no credentials.json"); false }
+/// Log in with saved credentials, keeping their selected metering point.
+/// Shared by the startup auto-login, the periodic token refresh and the
+/// on-demand re-login below.
+async fn login_with(state: &mut AppState, creds: &SavedCredentials) -> anyhow::Result<()> {
+    state.client.set_selected_gsrn(creds.selected_gsrn.clone());
+    state.client.login(&creds.username, &creds.password).await?;
+    state.logged_in = true;
+    Ok(())
+}
+
+type ApiError = (StatusCode, String);
+
+fn internal_error(e: anyhow::Error) -> ApiError {
+    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+}
+
+/// Run a Helen call for a handler. If it fails because the access token is
+/// gone, log in again from credentials.json and retry once.
+async fn with_relogin<T>(
+    state: &mut AppState,
+    call:  impl AsyncFn(&HelenClient) -> anyhow::Result<T>,
+) -> Result<T, ApiError> {
+    if !state.logged_in { return Err((StatusCode::UNAUTHORIZED, "Not logged in".into())); }
+    match call(&state.client).await {
+        Err(e) if e.to_string().contains(NO_ACCESS_TOKEN) => {}
+        other => return other.map_err(internal_error),
     }
+    tracing::info!("Access token expired — on-demand re-login…");
+    match load_credentials() {
+        Some(creds) => match login_with(state, &creds).await {
+            Ok(()) => tracing::info!("Re-login ok"),
+            Err(e) => tracing::warn!("Re-login failed: {}", e),
+        },
+        None => tracing::warn!("Re-login: no credentials.json"),
+    }
+    call(&state.client).await.map_err(internal_error)
 }
 
 #[derive(Serialize)]
@@ -362,51 +382,24 @@ async fn login_handler(
 
 async fn get_products_handler(
     State(state): State<Arc<Mutex<AppState>>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let mut state = state.lock().await;
-    if !state.logged_in { return Err((StatusCode::UNAUTHORIZED, "Not logged in".into())); }
-    match state.client.get_products().await {
-        Ok(d) => return Ok(Json(d)),
-        Err(e) if e.to_string().contains("No access token") => { relogin_if_needed(&mut state).await; }
-        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    }
-    state.client.get_products().await
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    with_relogin(&mut state, async |c| c.get_products().await).await.map(Json)
 }
 
 async fn get_contracts_handler(
     State(state): State<Arc<Mutex<AppState>>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let mut state = state.lock().await;
-    if !state.logged_in { return Err((StatusCode::UNAUTHORIZED, "Not logged in".into())); }
-    
-    let selected_gsrn = state.client.gsrn().ok();
-    
-    match state.client.fetch_contracts().await {
-        Ok(d) => {
-            let active = HelenClient::filter_active_contracts(&d);
-            Ok(Json(serde_json::json!({
-                "contracts": active,
-                "selected_gsrn": selected_gsrn
-            })))
-        }
-        Err(e) if e.to_string().contains("No access token") => {
-            relogin_if_needed(&mut state).await;
-            let selected_gsrn = state.client.gsrn().ok();
-            match state.client.fetch_contracts().await {
-                Ok(d) => {
-                    let active = HelenClient::filter_active_contracts(&d);
-                    Ok(Json(serde_json::json!({
-                        "contracts": active,
-                        "selected_gsrn": selected_gsrn
-                    })))
-                }
-                Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-            }
-        }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    }
+    with_relogin(&mut state, async |c| {
+        let contracts = c.fetch_contracts().await?;
+        Ok(serde_json::json!({
+            "contracts":     HelenClient::filter_active_contracts(&contracts),
+            "selected_gsrn": c.gsrn().ok(),
+        }))
+    })
+    .await
+    .map(Json)
 }
 
 #[derive(Deserialize)]
@@ -435,10 +428,7 @@ async fn select_contract_handler(
 async fn get_consumption_handler(
     State(state): State<Arc<Mutex<AppState>>>,
     Query(params): Query<ConsumptionQuery>,
-) -> Result<Json<ConsumptionData>, (StatusCode, String)> {
-    let mut state = state.lock().await;
-    if !state.logged_in { return Err((StatusCode::UNAUTHORIZED, "Not logged in".into())); }
-
+) -> Result<Json<ConsumptionData>, ApiError> {
     let resolution = match params.resolution.as_deref() {
         Some("quarter") => Resolution::Quarter,
         Some("day")     => Resolution::Day,
@@ -446,18 +436,11 @@ async fn get_consumption_handler(
         _               => Resolution::Hour,
     };
 
-    match state.client.get_consumption(params.start, params.stop, resolution).await {
-        Ok(d) => return Ok(Json(d)),
-        Err(e) if e.to_string().contains("No access token") => {
-            tracing::warn!("get_consumption token expired, re-logging in");
-            relogin_if_needed(&mut state).await;
-        }
-        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    }
-
-    state.client.get_consumption(params.start, params.stop, resolution).await
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    let ConsumptionQuery { start, stop, .. } = params;
+    let mut state = state.lock().await;
+    with_relogin(&mut state, async move |c| c.get_consumption(start, stop, resolution).await)
+    .await
+    .map(Json)
 }
 
 // ---------------------------------------------------------------------------
